@@ -252,7 +252,7 @@ def step_04_reid_embedding(project_root, crops_df, pipeline_cfg):
     try:
         import torch
         import torchvision.transforms as T
-        from torchreid.models import osnet
+        from torchreid.reid.models import osnet
 
         model = osnet.osnet_x1_0(num_classes=1, pretrained=True)
         model.eval()
