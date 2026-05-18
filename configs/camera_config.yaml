@@ -1,0 +1,15 @@
+# Cấu hình nguồn video/frame cho từng camera của hệ thống.
+# Định nghĩa loại dữ liệu, đường dẫn, fps và sequence chọn lọc.
+cameras:
+  cam_entrance_01:
+    source_type: frame_sequence
+    source_path: data/raw/MOT17/train
+    fps: null
+    start_time_sec: 0.0
+    sequence_keyword: ""
+
+  cam_ticket_01:
+    source_type: simulation
+    source_path: null
+    fps: 30.0
+    start_time_sec: 0.0

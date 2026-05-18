@@ -1,0 +1,24 @@
+# Cấu hình các vùng quan tâm (ROI) và quy tắc dwell time cho từng camera.
+cam_entrance_01:
+  entrance_line:
+    points:
+      - [100, 500]
+      - [900, 500]
+    direction: down
+
+cam_ticket_01:
+  ticket_counter_zone:
+    polygon:
+      - [300, 200]
+      - [700, 200]
+      - [750, 600]
+      - [250, 600]
+    min_dwell_time_sec: 5.0
+
+  queue_zone:
+    polygon:
+      - [100, 250]
+      - [280, 250]
+      - [280, 650]
+      - [100, 650]
+    min_dwell_time_sec: 8.0

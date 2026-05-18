@@ -1,0 +1,39 @@
+# Cấu hình pipeline chính cho phát hiện, theo dõi, tracklet, reid, và kết hợp.
+project_name: ticket_suspicion_multicamera
+
+detector:
+  model: yolov8n.pt
+  person_class_id: 0
+  confidence_threshold: 0.35
+  iou_threshold: 0.5
+  image_size: 960
+
+tracker:
+  type: bytetrack
+  tracker_yaml: bytetrack.yaml
+  track_thresh: 0.25
+  match_thresh: 0.8
+  track_buffer: 30
+
+tracklet:
+  min_frames: 10
+  min_duration_sec: 1.0
+  min_bbox_height: 40
+  top_k_crops: 5
+
+reid:
+  model: osnet_x1_0
+  embedding_dim: 512
+  input_height: 256
+  input_width: 128
+  device: cuda
+
+association:
+  similarity_threshold: 0.55
+  w_reid: 0.6
+  w_time: 0.3
+  w_quality: 0.1
+
+runtime:
+  max_frames_debug: 500
+  fps_default: 30.0

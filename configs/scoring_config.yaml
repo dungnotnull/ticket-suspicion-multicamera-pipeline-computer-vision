@@ -1,0 +1,13 @@
+# Cấu hình điểm cảnh báo, ngưỡng và trọng số cho việc đánh giá suspicious ticket behavior.
+scoring:
+  alert_threshold: 0.70
+  watch_threshold: 0.50
+  max_travel_time_sec: 600.0
+  current_time_sec: 1000.0
+
+weights:
+  entry: 0.25
+  no_ticket: 0.30
+  time_exceeded: 0.20
+  track_quality: 0.10
+  assoc_confidence: 0.15
