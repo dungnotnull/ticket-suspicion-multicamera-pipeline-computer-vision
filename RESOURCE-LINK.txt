@@ -1,0 +1,5 @@
+1. Github Repo: https://github.com/dungnotnull/workflow-for-ticket-suspicion-multi-camera-video-analytics
+
+2. Dataset: MOT17 https://www.kaggle.com/datasets/nhnhunhch/mot17-dataset
+
+3. Drive: https://drive.google.com/drive/folders/1oLMTQ-h3mgXWc6k4Ax8vgcKxNtAWamyb?usp=drive_link
