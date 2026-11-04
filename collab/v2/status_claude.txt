@@ -1,0 +1,29 @@
+VONG4_COMPLETE - DONE - CLAUDE PANE STOPPED
+
+Re-run of dirB tracking verified complete (previous run was killed mid-way
+by a hung process; process stopped, run restarted clean, log overwritten):
+- Log summary: sequences=7, total_frames=5316, detection_rows=97130
+- tracks_v4_dirB_full.csv (pandas verify): 7 cameras, 97130 rows, 0 NaN
+    MOT17-02-FRCNN  14868 rows / 226 tracks (max_fid 600)
+    MOT17-04-FRCNN  43190 rows / 140 tracks (max_fid 1050)
+    MOT17-05-FRCNN   5516 rows / 160 tracks (max_fid 837)
+    MOT17-09-FRCNN   4434 rows /  45 tracks (max_fid 525)
+    MOT17-10-FRCNN  11203 rows / 134 tracks (max_fid 654)
+    MOT17-11-FRCNN   7840 rows / 103 tracks (max_fid 900)
+    MOT17-13-FRCNN  10079 rows / 187 tracks (max_fid 750)
+
+Vong 4 final deliverables for orch eval (--halves):
+- outputs_v2/tracks/tracks_v4_dirA_full.csv  98691 rows (finetune on 1st halves,
+  eval held = SECOND halves: 02:[301,600] 04:[526,1050] 05:[420,837]
+  09:[264,525] 10:[328,654] 11:[451,900] 13:[376,750])
+- outputs_v2/tracks/tracks_v4_dirB_full.csv  97130 rows (finetune on 2nd halves,
+  eval held = FIRST halves: 02:[1,300] 04:[1,525] 05:[1,419] 09:[1,263]
+  10:[1,327] 11:[1,450] 13:[1,375])
+- Weights: outputs_v2/datasets/runs_v4/v4_dirA/weights/best.pt (P .905/R .741/
+  mAP50 .832 on held) and v4_dirB/weights/best.pt (P .917/R .713/mAP50 .817)
+- Datasets/YAMLs/manifest: outputs_v2/datasets/ (mot17_halves_dirA/dirB.yaml,
+  halves_manifest.json)
+- All logs: outputs_v2/logs/{build_v4_datasets,train_v4A,train_v4B,
+  track_v4_dirA,track_v4_dirB}.log
+
+No GPU jobs running. Claude pane idle per orch instruction.

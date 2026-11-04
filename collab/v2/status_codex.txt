@@ -1,0 +1,8 @@
+# Codex Tier 0 status - ring 4 completed
+- make_figures_v3.py created; outputs_v2 figures generated (200 dpi).
+  - operating_curve.png, perseq_precision.png, hota_components.png
+  - collab/v2/figures_index.md saved.
+- scoring_sweep_v2.py created and run: 3 ticket-rate x 3 seeds.
+  - outputs: collab/v2/scenario_sweep_results.csv + scenario_sweep.md
+- hota_eval.py extended; hota_perseq.csv created with per-seq HOTA/DetA/AssA/DetRe/DetPr/AssRe/AssPr.
+- No GPU/pip/source modifications.

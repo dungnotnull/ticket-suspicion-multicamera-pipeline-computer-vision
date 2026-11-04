@@ -3,3 +3,20 @@ notebooks/yolov8n.pt
 outputs
 improvement_proposals.md
 notebook_cells_summary.txt
+
+# --- ban sao Word / Office (khong dua vao repo theo yeu cau) ---
+*.docx
+~$*
+
+# --- code cai dat, cache, session ---
+__pycache__/
+.claude/
+*.pt
+runs/
+
+# --- artifact nang, sinh lai bang script trong collab/v2 ---
+collab/v2/hota_work/
+outputs_v2/*
+!outputs_v2/figures/
+outputs_v2_assoc_th071/
+outputs_v2_assoc_weighted/

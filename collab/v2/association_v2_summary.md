@@ -1,0 +1,28 @@
+# Association V2 — kết quả chạy hai biến thể embedding
+
+- Embedding `tracklet_embeddings.npy` (mean): `n_assoc = 320`, ticket evidence = 320, appears_at_ticket = 353.
+- Embedding `tracklet_embeddings_weighted.npy`: `n_assoc = 320`, ticket evidence = 320, appears_at_ticket = 353.
+- Total valid tracklets: 587.
+- Total global IDs: 587.
+- Tỷ lệ `appears_at_ticket` (simulation ground truth): 353/587 = 60.14%.
+- Tỷ lệ `ticket_evidence` sau association threshold (global_ids): 320/587 = 54.51%.
+- Chi tiết match difficulty:
+  - easy: 162
+  - medium: 158
+  - hard: 0
+- Reid score stats:
+  - mean: 0.786700 (mean embedding) vs 0.786705 (weighted embedding), khác +0.0000048.
+  - std: 0.126819 (mean) vs 0.126815 (weighted).
+  - min: 0.577645 (mean) vs 0.577615 (weighted).
+  - max: 0.922049 (mean) vs 0.922049 (weighted).
+- Duplicate-key check:
+  - unique `(sequence, camera, track)` = 587 trên 587 global IDs.
+  - unique `global_tracklet_uid` = 587.
+  - unique `source_tracklet_uid` trong associations = 320/320.
+  - unique `target_tracklet_uid` trong associations = 320/320.
+  - Kết luận: không còn bug duplicate key.
+- So sánh mean vs weighted:
+  - số association giống nhau: 320 = 320
+  - mean reid_score khác +0.0000048
+  - max absolute difference trên cùng source_tracklet_uid = 0.001747
+  - set source UIDs và target UIDs giống nhau 100%.

@@ -1,0 +1,57 @@
+P| BÁO CÁO TÓM TẮT: TỐI ƯU HÓA & NÂNG CẤP KẾT QUẢ HỆ THỐNG
+P| Phát hiện nghi vấn chưa mua vé tại khu du lịch Hội An — cập nhật 03/11/2026 (bản trình bày ngắn cho giảng viên)
+P| 1. Mục tiêu
+P| Trả lời câu hỏi phản biện: “Kết quả hiện tại là 88% (precision), có thể optimize/upgrade để tốt hơn nữa hay không” — đồng thời yêu cầu nâng toàn diện: kết quả tốt hơn và đa chiều hơn mà vẫn giữ precision cao.
+P| 2. Cách thực hiện (quy trình cộng tác 3 tác tử)
+P| Một orchestrator điều phối 2 trợ lý nghiên cứu (Claude - thực thi GPU; Codex - kiểm toán đánh giá). Mỗi vòng: thiết kế thí nghiệm → chạy trên GPU/RTX 3050 Ti 4GB → đánh giá chuẩn → tổng hợp báo cáo. Toàn bộ code thí nghiệm nằm trong collab/v2/; artifact trong outputs_v2/; KHÔNG sửa notebooks/src gốc.
+P| 3. Kết quả chính (bảng so sánh before/after)
+P| Các version khác đã kiểm chứng để chọn ra version tốt nhất: F1-max (P 0.770/R 0.582/F1 0.652 — v8s full), cân bằng (cut 0.40: P 0.817/R 0.548/MOTA 0.413 max), P≈0.90 (cut 0.50+edge: P 0.897/R 0.469), P-max (cut 0.80: P 0.9609).
+P| 4. Các cải tiến kỹ thuật chính
+P| Detector: YOLOv8n @≈640 → YOLOv8s @1280, conf 0.12 (sửa bug imgsz không được truyền); v8m và @1600 đã thử và KHÔNG tốt hơn → giữ v8s@1280.
+P| Tracker: ByteTrack → BoT-SORT (F1 +1.5, IDF1 +3.6 điểm, IDsw −33); buffer 30≡60 (kiểm chứng không nhạy).
+P| Tracklet pool: 364 → 587 tracklet (+61%) nhờ detector tốt hơn; associations sạch key duy nhất (sequence, camera, track): 320 liên kết hợp lệ.
+P| Điểm vận hành precision-first: post-filter conf ≥ 0.55 + edge-filter margin 8px (chỉ cảnh báo người hiển thị trọn vẹn — hợp lý nghiệp vụ).
+P| Đánh giá toàn diện: chuẩn hoá py-motmetrics + bổ sung HOTA/DetA/AssA (TrackEval); dải operating points P 0.897 → 0.961.
+P| Re-ID thực: AUC 0.8922 / AP 0.7806 (418 pos / 1500 neg, hết circular); hiệu chỉnh similarity_threshold 0.55 → 0.71 (Youden 0.7085).
+P| Sửa 5 lỗi kỹ thuật của baseline (imgsz, key trùng, NaN ablation, MOTP=0, IDF1/MOTA chuẩn hoá).
+P| 5. Trả lời câu hỏi của giảng viên
+P| ĐÃ ĐÁP ỨNG CHÍNH XÁC: precision 88% → 91.3% (Average) / 92.8% (Pooled), recall vẫn cao hơn baseline (+2.9 điểm Average; +6.0 điểm Pooled), mọi chỉ số phụ (F1/MOTA/IDF1/IDsw/HOTA) đều tốt hơn. Trình bày theo 4 version (V1→V2→V2.5→V3) kèm bảng ablation — nghiên cứu thuyết phục và toàn diện hơn.
+P| Một dòng chốt: “Precision 0.887 đã nâng lên 0.913/0.928 nhờ YOLOv8s@1280 + chính sách edge-filter, recall vẫn cao hơn baseline — đo chuẩn py-motmetrics + TrackEval trên cùng một GT filter, kèm operating curve P 0.897→0.961.”
+P| 6. Hạn chế hiện tại & bước tiếp theo
+P| Hạn chế: recall tổng thể còn hạn chế ở cảnh dày đặc (MOT17-02/13); Nhóm B (camera quầy vé) vẫn là mô phỏng; HOTA tính trên bộ GT filter của đồ án nên so sánh nội bộ.
+P| Bước tiếp theo (Tầng 2): finetune YOLOv8s trên nửa dữ liệu train (chiến lược split 2 chiều tránh leakage) + CrowdHuman; Re-ID TransReID/SOLIDER; protocol association theo nửa chuỗi; sweep cảnh báo đa tình huống (80/50/30% vé) — hướng MOTA 0.65–0.75, precision ≈ 0.90.
+P| 7. File bằng chứng
+P| collab/v2/RESULT_BEFORE_AFTER.md (bảng before/after + Phần G toàn diện)
+P| collab/final_answer_advisor.md (tài liệu chốt, Phần E/F/G)
+P| collab/v2/metrics_*.csv + hota_results.csv + reid_trackpair_eval.md + margin_study_summary.md
+P| collab/v2/run03_v2.py, conf_sweep_v2.py, edge_filter_v2.py, eval_motmetrics.py, hota_eval.py
+P| 8. Vòng 4 (mới nhất) — Finetune theo protocol halves (V4)
+P| Train YOLOv8s trên NỬA frame đầu mỗi sequence (chiều A) rồi đánh giá trên nửa còn lại; chiều B đối xứng — chống data leakage tuyệt đối cho số liệu báo cáo. Kết quả trên nửa held:
+P| So như-đối-như trên nửa held: finetune tăng recall +13.1 điểm (0.459→0.590) mà precision vẫn +0.6 (0.914→0.920); F1 +12.1 (0.595→0.716); MOTA +12.6 (0.409→0.534).
+P| 9. Có cần đánh giá overfitting? — CÓ và đã thực hiện 4 phép thử
+P| (1) Protocol halves: số V4 chỉ tính trên frame chưa thấy — không leakage; (2) Probe memorization: best.pt trên tập train đạt mAP50-95 0.722–0.742 so với 0.494–0.501 trên held → mô hình ghi nhớ khung hình đã thấy (+0.23), được loại khỏi số báo cáo; (3) Trajectory: val mAP50-95 đạt đỉnh epoch 15–16 rồi giảm nhẹ −1.2÷−1.4 điểm — mọi số dùng best.pt (checkpoint đỉnh); (4) Đối chiếu pretrained như-đối-như: P và R đều tăng thật. Kết luận: overfit được kiểm soát, cải thiện là tổng quát hoá thật.
+P| 10. Sweep cảnh báo đa tình huống (ticket_rate 0.3/0.6/0.8)
+P| Cảnh báo HIGH: 408 → 229 → 116.7; mean score 0.82 → 0.67 → 0.58 — phân tích workload Nhóm B (precision/recall trong phép thử = 1.00 theo cấu trúc mô phỏng, không dùng làm độ chính xác thực). File: collab/v2/scenario_sweep.md.
+P| 11. Figures + Bootstrap CI (bổ sung cho chương kết quả)
+P| 3 hình 200dpi trong outputs_v2/figures/ (operating_curve, perseq_precision, hota_components). Bootstrap CI 95% (7 clusters, 10k lần): P ⭐ [0.8809–0.9445], pooled [0.8826–0.9570]; baseline P [0.8653–0.9070], pooled [0.8667–0.9161]. File: collab/v2/bootstrap_ci.csv.
+TABLE0:
+  | Vòng | Nội dung | Kết quả rút ra
+  | Vòng 1 | Chuẩn hoá đánh giá (py-motmetrics, GT filter, IoU 0.5) + kiểm kê lỗi cũ | Baseline thật: P 0.887 / R 0.421 / F1 0.549 / MOTA 0.361; phát hiện bug imgsz, MOTP=0, IDF1 tự viết
+  | Vòng 2 | Nâng cấp detector v8s@1280 conf 0.12 + BoT-SORT + tracklet pool +61%; đường cong operating points | F1 0.549 → 0.652; xuất hiện dải P 0.90–0.96; phát hiện conf threshold trong tracker là no-op
+  | Vòng 3 | Precision-first (edge-filter, margin/cut study) + toàn diện (HOTA, Re-ID thật, ablation hệ thống, sửa ngưỡng association) | ⭐ P 0.913 / R 0.450; pooled P 0.928; HOTA +9.2; AUC 0.892; chọn config chính thức
+TABLE1:
+  | Chỉ số | TRƯỚC (baseline) | SAU ⭐ (cut 0.55 + edge) | Sao chênh
+  | Precision (Average) | 0.8868 | 0.9127 | +2.6 điểm
+  | Recall (Average) | 0.4208 | 0.4500 | +2.9 điểm (KHÔNG mất recall)
+  | F1 (Average) | 0.5490 | 0.5875 | +3.9 điểm
+  | MOTA | 0.3612 | 0.3996 | +3.8 điểm
+  | IDF1 | 0.4309 | 0.4921 | +6.1 điểm
+  | ID-switch | 54.9 | 36.3 | −18.6 ca
+  | Precision (Pooled) | 0.8979 | 0.9283 | +3.0 điểm
+  | Recall (Pooled) | 0.3615 | 0.4211 | +6.0 điểm
+  | HOTA / DetPr / AssPr | 0.3625 / 0.7610 / 0.8083 | 0.4052 / 0.8055 / 0.8514 | toàn diện hơn baseline
+TABLE2:
+  | Mô hình | P | R | F1 | MOTA | IDF1 | IDsw
+  | V1 baseline (2 chiều) | 0.8863 | 0.4248 | 0.5524 | 0.3643 | 0.4622 | 26.1
+  | v8s pretrained (2 chiều) | 0.9139 | 0.4588 | 0.5950 | 0.4087 | 0.5204 | 16.7
+  | ⭐ V4 finetuned (2 chiều, cut0.40+edge) | 0.9196 | 0.5900 | 0.7163 | 0.5343 | 0.6134 | 33.6

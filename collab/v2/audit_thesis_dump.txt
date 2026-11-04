@@ -1,0 +1,1095 @@
+P| Xây dựng pipeline hỗ trợ phát hiện nghi vấn chưa mua vé tại khu du lịch mở Hội An bằng theo dõi và tái nhận diện người trên hệ thống camera đa điểm
+P| Truong Hoang Dung
+P| Email: dungtruong.525102180005@st.ueh.edu.vn
+P| Nguyen Thanh Huy
+P| Email: huynt@ueh.edu.vn
+P| TÓM TẮT
+P| Sự phát triển của các khu du lịch mở, nơi không tồn tại cổng kiểm soát vé cứng tại mọi lối vào, đặt ra thách thức lớn cho công tác quản lý vé và điều phối vận hành. Trong bối cảnh đó, việc xác định một du khách đã đi vào khu vực tham quan nhưng chưa có bằng chứng xuất hiện tại quầy vé là một bài toán phức tạp, không thể giải quyết hiệu quả bằng phương pháp kiểm tra thủ công hoặc đếm lượt đơn giản.
+P| Nghiên cứu này đề xuất một pipeline phân tích video đa giai đoạn nhằm hỗ trợ phát hiện các trường hợp nghi ngờ không có bằng chứng vé tại khu du lịch mở, điển hình như bối cảnh phố cổ Hội An. Hệ thống kết hợp các kỹ thuật thị giác máy tính gồm phát hiện người bằng YOLOv8n, theo vết đa đối tượng bằng ByteTrack, trích xuất tracklet, tái nhận diện người bằng OSNet và liên kết định danh toàn cục bằng độ tương đồng cosine kết hợp thuật toán Hungarian. Trên cơ sở các định danh tạm thời, hệ thống mô phỏng sự kiện vùng quan tâm, trạng thái hành trình và tính điểm nghi ngờ theo luật nghiệp vụ có khả năng giải thích.
+P| Thực nghiệm được thực hiện trên 7 sequence của bộ dữ liệu MOT17-FRCNN với tổng cộng 5.293 frame. Pipeline tạo ra 45.445 dòng detection-track, 704 local tracks, 364 valid tracklets, 364 global IDs và 145 trường hợp cần human review trong kịch bản mô phỏng. Kết quả cho thấy pipeline có khả năng vận hành end-to-end, duy trì luồng dữ liệu nhất quán từ video đầu vào đến cảnh báo có bằng chứng trực quan.
+P| Do MOT17 không chứa nhãn mua vé hoặc camera quầy vé thật, nghiên cứu không kết luận hành vi mua vé thực tế mà đánh giá tính khả thi kỹ thuật của kiến trúc đề xuất thông qua mô phỏng ticket evidence. Hệ thống được thiết kế theo mô hình human-in-the-loop, trong đó các cảnh báo chỉ đóng vai trò hỗ trợ xác minh bởi nhân viên vận hành, góp phần giảm rủi ro kỹ thuật, pháp lý và đạo đức khi ứng dụng trong không gian công cộng.
+P| Từ khóa: phân tích video đa camera, phát hiện người, theo dõi đa đối tượng, tái nhận diện người, person re-identification, multi-camera tracking, video analytics, phát hiện nghi vấn chưa mua vé, khu du lịch thông minh.
+P| CHƯƠNG 1. XÁC ĐỊNH VẤN ĐỀ NGHIÊN CỨU
+P| 1.1. Bối cảnh và sự cần thiết của đề tài
+P| Trong những năm gần đây, sự phát triển của học sâu và thị giác máy tính đã làm thay đổi vai trò của hệ thống camera giám sát trong nhiều không gian công cộng. Camera không chỉ còn được sử dụng để quan sát trực tiếp hoặc truy xuất hậu kiểm, mà còn trở thành nguồn dữ liệu đầu vào cho các hệ thống phân tích video tự động. Các bài toán như phát hiện người, theo dõi đa đối tượng, tái nhận diện người, đếm người, phân tích vùng quan tâm và phát hiện sự kiện đã được ứng dụng trong nhiều bối cảnh như giao thông, nhà ga, trung tâm thương mại, khu du lịch và đô thị thông minh.
+P| Ở cấp độ phát hiện đối tượng, các mô hình thuộc họ YOLO là một trong những hướng tiếp cận phổ biến cho các hệ thống cần xử lý ảnh hoặc video với tốc độ cao. Bochkovskiy và cộng sự (2020) đề xuất YOLOv4 với mục tiêu cân bằng giữa tốc độ và độ chính xác trong phát hiện đối tượng. Wang và cộng sự (2023) giới thiệu YOLOv7 với các cải tiến hướng đến huấn luyện hiệu quả và suy luận thời gian thực. Gần đây, Wang và cộng sự (2024) đề xuất YOLOv9 với cơ chế Programmable Gradient Information nhằm cải thiện quá trình học đặc trưng trong mạng phát hiện đối tượng. Các nghiên cứu này cho thấy object detection vẫn là thành phần nền tảng trong các hệ thống video analytics, đặc biệt khi cần xử lý nhiều khung hình liên tục từ camera. Trong thực nghiệm, nghiên cứu này sẽ sử dụng YOLOv8n cho phát hiện người để tối ưu về tốc độ, ByteTrack cho theo vết đa đối tượng và OSNet-x1-0 cho trích xuất đặc trưng Re-ID. 
+P| Bên cạnh phát hiện đối tượng, bài toán theo dõi đa đối tượng trong video đóng vai trò quan trọng trong việc duy trì định danh tạm thời của người qua các khung hình liên tiếp. Dendorfer và cộng sự (2020) giới thiệu MOT20 như một benchmark cho multi-object tracking trong cảnh đông người, nơi các hiện tượng che khuất và mật độ người cao làm tăng khó khăn cho quá trình duy trì ID. Luiten và cộng sự (2021) đề xuất HOTA như một chỉ số đánh giá multi-object tracking, trong đó chất lượng tracking được xem xét đồng thời qua detection, association và localization. Về thuật toán, Zhang và cộng sự (2022) đề xuất ByteTrack với chiến lược liên kết hầu hết các detection box, bao gồm cả những detection có độ tin cậy thấp, nhằm giảm nguy cơ mất track trong các tình huống detector không ổn định. Aharon và cộng sự (2022) đề xuất BoT-SORT, kết hợp camera motion compensation và đặc trưng Re-ID để cải thiện quá trình association trong tracking nhiều người.
+P| Đối với bài toán tái nhận diện người qua nhiều camera, person re-identification đóng vai trò liên kết các quan sát có khả năng thuộc về cùng một người ở các góc nhìn khác nhau. Ye và cộng sự (2021) tổng hợp các hướng nghiên cứu deep learning cho person re-identification và chỉ ra nhiều thách thức vẫn còn tồn tại, bao gồm thay đổi góc nhìn, che khuất, domain gap, điều kiện ánh sáng, chất lượng ảnh crop và sự tương đồng trang phục giữa nhiều người.
+P| Trong bối cảnh quản lý vé tại các khu du lịch mở như Hội An, việc kiểm soát lượt vào có những đặc thù khác với các địa điểm có cổng kiểm soát cứng. Ở các hệ thống có turnstile, barrier, mã QR hoặc thẻ từ, trạng thái hợp lệ của lượt vào có thể được xác nhận tại một điểm kiểm soát cụ thể. Ngược lại, ở khu vực mở, du khách có thể tiếp cận khu tham quan từ nhiều hướng khác nhau, không nhất thiết đi qua một điểm kiểm soát cố định. Vì vậy, việc xác định một cá nhân đã đi vào khu vực tham quan nhưng chưa có bằng chứng xuất hiện tại quầy vé là một bài toán phức tạp nếu chỉ dựa vào quan sát thủ công, đếm lượt người hoặc log giao dịch bán vé độc lập.
+P| Khó khăn cốt lõi của bài toán nằm ở chỗ: việc không quan sát thấy một người tại quầy vé chưa đồng nghĩa với việc người đó chưa mua vé. Du khách có thể mua vé online, mua trước qua kênh điện tử, được người khác trong nhóm mua hộ, hoặc chỉ đơn giản đi qua vùng phủ camera không đầy đủ. Vì vậy, hệ thống không thể chỉ dựa vào tín hiệu vắng mặt để kết luận, mà cần kết hợp nhiều nguồn bằng chứng và phải có khả năng trả về trạng thái "chưa đủ bằng chứng" khi chuỗi quan sát không chắc chắn.
+P| Đề tài hướng đến xây dựng một hệ thống phân tích video đa camera nhằm hỗ trợ phát hiện các trường hợp nghi vấn chưa mua vé. Hệ thống không đặt mục tiêu xác định danh tính thật của du khách và cũng không kết luận vi phạm một cách tự động. Thay vào đó, hệ thống gán định danh tạm thời cho các tracklet trong video, liên kết các quan sát có khả năng thuộc về cùng một người qua nhiều camera, sau đó kiểm tra xem người đó có xuất hiện tại khu vực quầy vé, vùng hàng chờ hoặc vùng giao dịch trong một khoảng thời gian hợp lý hay không. Nếu không tìm thấy bằng chứng phù hợp, hệ thống sinh cảnh báo nghi vấn để nhân viên vận hành xác minh.
+P| Từ góc độ nghiên cứu, bài toán này là sự kết hợp của nhiều thành phần trong computer vision: phát hiện người, theo dõi đa đối tượng, tái nhận diện người, liên kết đa camera, phân tích vùng quan tâm và suy luận sự kiện theo không gian-thời gian. Vì vậy, đề tài có ý nghĩa cả về mặt ứng dụng lẫn kỹ thuật. Về ứng dụng, hệ thống có thể hỗ trợ lực lượng vận hành sàng lọc các trường hợp cần kiểm tra và cung cấp bằng chứng thị giác phục vụ xác minh. Về kỹ thuật, đề tài nghiên cứu cách tổ chức các mô-đun computer vision đã được kiểm chứng thành một pipeline nghiệp vụ có thể đánh giá ở mức sự kiện và cảnh báo, thay vì chỉ đánh giá từng mô hình riêng lẻ. Cuối cùng, nghiên cứu này không nhằm thay thế hệ thống bán vé hiện có, mà đóng vai trò lớp phân tích hỗ trợ đối soát giữa quan sát camera và bằng chứng vé.
+P| 1.2. Khoảng trống nghiên cứu và động lực thực hiện đề tài
+P| Các hướng nghiên cứu liên quan đến giám sát người trong video đã được phát triển theo nhiều nhiệm vụ riêng biệt. Trong phát hiện đối tượng, các mô hình thuộc họ YOLO được nghiên cứu nhằm đáp ứng yêu cầu xử lý nhanh trong các ứng dụng thời gian thực hoặc gần thời gian thực. YOLOv4 tập trung vào việc tối ưu tốc độ và độ chính xác của detection (Bochkovskiy và cộng sự, 2020). YOLOv7 tiếp tục cải thiện hiệu quả huấn luyện và suy luận của detector (Wang và cộng sự, 2023). YOLOv9 khai thác cơ chế lập trình thông tin gradient để cải thiện khả năng học đặc trưng trong mạng phát hiện đối tượng (Wang và cộng sự, 2024), nhưng khá ít sử dụng YOLOv8n. Các công trình này cung cấp cơ sở cho việc lựa chọn detector trong pipeline phân tích video.
+P| Trong multi-object tracking, các nghiên cứu gần đây tập trung vào việc duy trì định danh đối tượng ổn định trong các bối cảnh có che khuất, người đông và detector không hoàn hảo. MOT20 được giới thiệu để đánh giá tracking trong cảnh đông người, giúp kiểm tra khả năng duy trì track khi các đối tượng bị che khuất hoặc xuất hiện gần nhau (Dendorfer và cộng sự, 2020). HOTA được đề xuất nhằm đánh giá tracking theo cách cân bằng hơn giữa detection, association và localization (Luiten và cộng sự, 2021). ByteTrack của Zhang và cộng sự (2022) cho thấy việc tận dụng cả detection có confidence thấp trong association có thể hỗ trợ duy trì track trong một số tình huống khó. BoT-SORT của Aharon và cộng sự (2022) bổ sung camera motion compensation và Re-ID feature để cải thiện association trong tracking nhiều người.
+P| Trong person re-identification, các nghiên cứu tập trung vào việc học đặc trưng ngoại hình giúp liên kết cùng một người qua các camera khác nhau. Ye và cộng sự (2021) cho thấy Re-ID vẫn chịu ảnh hưởng bởi nhiều yếu tố như domain gap, thay đổi góc nhìn, che khuất, chất lượng ảnh crop và sự tương đồng trang phục. He và cộng sự (2021) đề xuất TransReID để khai thác Transformer trong biểu diễn đặc trưng toàn cục. Luo và cộng sự (2020) giới thiệu FastReID như một framework phục vụ huấn luyện và đánh giá mô hình Re-ID. Ngoài ra, các benchmark như Market-1501 và MSMT17, dù được công bố trước 2020, vẫn thường được sử dụng để đánh giá person Re-ID trong môi trường đa camera vì tính phổ biến và khả năng so sánh với nhiều công trình trước đó (Zheng và cộng sự, 2015; Wei và cộng sự, 2018; Ye và cộng sự, 2021).
+P| Bên cạnh tracking trong một camera và Re-ID trên ảnh crop, bài toán multi-camera multi-person tracking cũng có liên quan đến đề tài này. Han và cộng sự (2023) giới thiệu MMPTRACK, một benchmark quy mô lớn cho theo dõi nhiều người trên nhiều camera trong môi trường đông người. Hướng nghiên cứu này có ý nghĩa đối với bài toán của đề tài vì hệ thống cần liên kết hành trình của một người qua nhiều camera khác nhau, đồng thời cần sử dụng thông tin không gian-thời gian để hạn chế liên kết sai.
+P| Mặc dù các nghiên cứu trên cung cấp nền tảng kỹ thuật quan trọng, bài toán phát hiện nghi vấn chưa mua vé tại khu du lịch mở có yêu cầu nghiệp vụ khác với các benchmark riêng lẻ. Các benchmark tracking như MOT20 tập trung vào khả năng duy trì định danh trong video. Các benchmark Re-ID như Market-1501 hoặc MSMT17 tập trung vào khả năng truy xuất cùng người dựa trên ảnh crop. Các benchmark multi-camera tracking tập trung vào liên kết định danh qua nhiều camera. Trong khi đó, bài toán của đề tài cần một chuỗi xử lý nghiệp vụ dài hơn: phát hiện người đi qua lối vào, theo dõi người đó trong camera, tái nhận diện khi người đó xuất hiện ở camera khác, kiểm tra sự xuất hiện tại khu vực quầy vé hoặc hàng chờ, sau đó sinh cảnh báo nếu không có bằng chứng phù hợp trong một khoảng thời gian xác định.
+P| Trong phạm vi khảo sát tài liệu của đề tài, chưa tìm thấy dataset công khai nào cung cấp đầy đủ nhãn nghiệp vụ cho chuỗi sự kiện: “đi vào khu du lịch - xuất hiện tại quầy vé - không xuất hiện tại quầy vé - sinh cảnh báo nghi vấn”. Các dataset công khai như MOT20, Market-1501, MSMT17 hoặc MMPTRACK có thể hỗ trợ đánh giá từng năng lực thành phần, nhưng chưa trực tiếp mô hình hóa bài toán đối soát hành trình với khu vực quầy vé trong một khu du lịch mở. Vì vậy, đề tài cần kết hợp đánh giá trên public dataset cho từng mô-đun với kịch bản mô phỏng nghiệp vụ nhằm kiểm tra toàn bộ pipeline ở mức sự kiện và cảnh báo.
+P| Khoảng trống của đề tài vì vậy không nằm ở việc đề xuất một mô hình detection, tracking hoặc Re-ID hoàn toàn mới. Thay vào đó, khoảng trống nằm ở việc tích hợp các kỹ thuật đã được kiểm chứng thành một pipeline nghiệp vụ có khả năng giải thích. Pipeline cần kết hợp đặc trưng thị giác, ràng buộc không gian-thời gian, vùng quan tâm và luật nghiệp vụ để tạo ra cảnh báo nghi vấn có thể được con người xác minh. Cảnh báo cần đi kèm bằng chứng như thời điểm đi vào, camera ghi nhận, ảnh crop đại diện, lịch sử xuất hiện, trạng thái xuất hiện tại quầy vé và điểm nghi vấn.
+P| Động lực thực hiện đề tài xuất phát từ nhu cầu xây dựng một giải pháp hỗ trợ vận hành trong điều kiện thực tế, nhưng vẫn dựa trên cơ sở khoa học từ các nghiên cứu đã công bố. Đề tài không đặt mục tiêu huấn luyện một mô hình lớn từ đầu hoặc so sánh hàng loạt kiến trúc deep learning tốn kém. Thay vào đó, đề tài tập trung lựa chọn các mô hình và thuật toán phù hợp với tiêu chí gọn nhẹ, dễ triển khai bằng Python, có thể chạy trên môi trường cloud phổ thông như Google Colab hoặc Vast.ai, có thể tái lập trong phạm vi luận văn, và có khả năng cung cấp bằng chứng giải thích cho nhân viên vận hành.
+P| 1.3. Vấn đề nghiên cứu
+P| Bài toán nghiên cứu của đề tài được đặt ra như sau:
+P| Làm thế nào để từ nhiều camera rời rạc có thể liên kết hành trình của cùng một người và xác định các trường hợp thiếu bằng chứng vé theo logic nghiệp vụ?
+P| Trong bài toán này, dữ liệu đầu vào là các luồng video từ nhiều camera. Các camera có thể được bố trí tại lối vào khu du lịch, khu vực quầy vé, vùng hàng chờ, vùng giao dịch và một số điểm trung gian trên tuyến di chuyển. Trong điều kiện triển khai thực tế, hệ thống cũng cần thông tin bổ sung về vị trí camera, hướng quan sát, quan hệ không gian giữa các camera, thời gian di chuyển hợp lý giữa các điểm và vùng quan tâm được định nghĩa trước.
+P| Đầu ra của hệ thống không phải là kết luận “đã mua vé” hoặc “chưa mua vé” ở mức tuyệt đối. Thay vào đó, đầu ra là danh sách các trường hợp nghi vấn, được xếp hạng theo mức độ rủi ro và đi kèm bằng chứng thị giác. Mỗi cảnh báo nên bao gồm thời điểm người đó đi vào, camera ghi nhận ban đầu, ảnh crop đại diện, lịch sử xuất hiện qua các camera, trạng thái có hoặc không có bằng chứng xuất hiện tại vùng quầy vé, điểm nghi vấn, mức ưu tiên cảnh báo và thông tin phục vụ xác minh thủ công.
+P| Vấn đề nghiên cứu không chỉ nằm ở việc phát hiện một người trong video, mà nằm ở khả năng đối soát hành trình của người đó qua nhiều camera. Hệ thống cần trả lời các câu hỏi như: người đó đã đi qua vùng vào hay chưa; tracklet trong camera có đủ ổn định để sử dụng hay không; người đó có thể được liên kết với tracklet ở camera khác hay không; người đó có xuất hiện tại vùng quầy vé, vùng hàng chờ hoặc vùng giao dịch hay không; nếu không xuất hiện thì sau khoảng thời gian nào hệ thống nên sinh cảnh báo nghi vấn; và cảnh báo đó cần có bằng chứng gì để nhân viên vận hành xác minh.
+P| Các câu hỏi trên cho thấy đây là bài toán tích hợp giữa computer vision và luật nghiệp vụ. Nếu chỉ sử dụng Re-ID, hệ thống có thể nhầm người trong môi trường đông đúc do các yếu tố như thay đổi góc nhìn, che khuất, chất lượng ảnh crop và trang phục tương đồng, vốn là các thách thức đã được tổng hợp trong khảo sát của Ye và cộng sự (2021). Nếu chỉ sử dụng line crossing hoặc people counting, hệ thống có thể ghi nhận sự kiện đi vào nhưng không đủ thông tin để xác định người đó có đi đến quầy vé hay không. Nếu chỉ dùng log giao dịch bán vé, hệ thống không trực tiếp biết giao dịch đó thuộc về cá nhân nào trong luồng video. Do đó, giải pháp cần kết hợp nhiều nguồn bằng chứng gồm tracking, Re-ID, ROI analytics, ràng buộc không gian-thời gian và luật nghiệp vụ.
+P| 1.4. Mục tiêu nghiên cứu
+P| 1.4.1. Mục tiêu tổng quát
+P| Mục tiêu tổng quát của đề tài là xây dựng một hệ thống phân tích video đa camera nhằm phát hiện và cảnh báo các trường hợp nghi vấn chưa mua vé tại khu du lịch mở, dựa trên phát hiện người, theo dõi đa đối tượng, tái nhận diện người và phân tích sự kiện tại khu vực quầy vé.
+P| Hệ thống được định hướng như một công cụ hỗ trợ ra quyết định, không thay thế hoàn toàn con người trong việc kết luận vi phạm. Định hướng này xuất phát từ thực tế rằng các mô hình computer vision trong môi trường giám sát có thể chịu ảnh hưởng bởi nhiều yếu tố như che khuất, ánh sáng thay đổi, độ phân giải camera, mật độ đám đông và sai số association. Các yếu tố này đã được ghi nhận trong các nghiên cứu về tracking trong cảnh đông người và person re-identification trong môi trường đa camera (Dendorfer và cộng sự, 2020; Ye và cộng sự, 2021).
+P| 1.4.2. Mục tiêu cụ thể
+P| Để đạt được mục tiêu tổng quát, đề tài tập trung vào các mục tiêu cụ thể sau:
+P| Phân tích bài toán thực tế.
+P| Đề tài phân tích đặc điểm của khu du lịch mở, quy trình mua vé, vị trí camera, tuyến di chuyển khả thi và các tình huống có thể gây cảnh báo sai như đi theo đoàn, được người khác mua vé thay, che khuất, đi vòng hoặc ra khỏi vùng phủ camera.
+P| Thiết kế pipeline phân tích video đa camera.
+P| Đề tài xây dựng kiến trúc hệ thống gồm các bước: tiếp nhận và đồng bộ video, phát hiện người, tracking trong từng camera, sinh và lọc tracklet, trích xuất đặc trưng Re-ID, liên kết đa camera, quản lý định danh tạm thời toàn cục, phân tích vùng sự kiện, tính điểm nghi vấn và sinh cảnh báo. Pipeline này kế thừa các nền tảng kỹ thuật từ object detection, multi-object tracking và person re-identification (Bochkovskiy và cộng sự, 2020; Zhang và cộng sự, 2022; Aharon và cộng sự, 2022; He và cộng sự, 2021).
+P| Lựa chọn mô hình và thuật toán phù hợp cho từng giai đoạn.
+P| Đề tài nghiên cứu các phương pháp thường dùng cho từng tác vụ, phân tích ưu điểm, hạn chế và lựa chọn giải pháp phù hợp với tiêu chí gọn nhẹ, dễ triển khai, có khả năng chạy trên môi trường cloud phổ thông và phù hợp với mục tiêu thực nghiệm của luận văn. Các lựa chọn như YOLO cho detection, ByteTrack hoặc BoT-SORT cho tracking và mô hình Re-ID nhẹ cho trích xuất đặc trưng được xem xét dựa trên cơ sở nghiên cứu tương ứng và khả năng triển khai thực tế (Wang và cộng sự, 2023; Zhang và cộng sự, 2022; Aharon và cộng sự, 2022; Luo và cộng sự, 2020).
+P| Xây dựng cơ chế quản lý định danh tạm thời toàn cục.
+P| Đề tài thiết kế phương pháp gán và cập nhật global temporary ID cho người xuất hiện qua nhiều camera, dựa trên đặc trưng ngoại hình và ràng buộc không gian-thời gian. Cơ chế này không nhằm xác định danh tính thật của cá nhân, mà chỉ phục vụ đối soát hành trình trong phạm vi phiên quan sát của hệ thống.
+P| Xây dựng cơ chế phân tích hành vi tại quầy vé.
+P| Đề tài xác định người có xuất hiện tại vùng quầy vé, vùng hàng chờ hoặc vùng giao dịch hay không thông qua ROI, dwell time, line crossing và thông tin timestamp. Đây là bước chuyển đổi kết quả thị giác máy tính thành sự kiện nghiệp vụ phục vụ đối soát hành trình.
+P| Hệ thống cũng được bổ sung cơ chế quản lý độ bất định (Uncertainty Calibration). Cụ thể, khi độ tin cậy Re-ID thấp (dưới 0.60), hệ thống tự động gán trạng thái "uncertain_insufficient_evidence" (chưa đủ bằng chứng kết luận), đồng thời giảm điểm nghi vấn và đặt mức cảnh báo là LOW nhằm hạn chế tối đa báo động sai.
+P| Đề xuất cơ chế tính điểm nghi vấn.
+P| Đề tài xây dựng công thức hoặc tập luật nghiệp vụ để tính điểm nghi vấn dựa trên các yếu tố như thời gian từ lối vào đến quầy vé, số lần xuất hiện, độ tin cậy của Re-ID, độ dài tracklet, chất lượng ảnh crop và bằng chứng vắng mặt tại khu vực quầy vé. Điểm nghi vấn được sử dụng để xếp hạng ưu tiên kiểm tra, không được xem là bằng chứng kết luận vi phạm.
+P| Quá trình đánh giá được phân định rạch ròi thành hai nhóm kết quả để đảm bảo tính khách quan khoa học:
+P| Nhóm A (Đánh giá trên Ground Truth MOT17): Đo đạc độ chính xác thuật toán cốt lõi với các chỉ số tiêu chuẩn như MOTA, IDF1 (chỉ số duy trì định danh liên tục đạt 42.77%), Precision và Recall.
+P| Nhóm B (Đánh giá Kịch bản Mô phỏng nghiệp vụ): Đo đạc hiệu quả phát hiện qua số lượng High Alerts (145 trường hợp) và tỷ lệ lọc cảnh báo bằng luật nghiệp vụ, với lưu ý không có Ground Truth tuyệt đối để tính PR-AUC.
+P| Ngoài ra, một nghiên cứu loại bỏ tính năng (Feature Ablation Study) được thiết kế nhằm đánh giá độ đóng góp độc lập của Re-ID, thời gian và vùng vé.
+P| Đánh giá hệ thống trên public dataset và kịch bản mô phỏng.
+P| Đề tài sử dụng các dataset công khai cho từng thành phần như MOT20 cho tracking, Market-1501 hoặc MSMT17 cho Re-ID, và MMPTRACK cho bối cảnh multi-camera tracking nếu phù hợp với điều kiện khai thác dữ liệu. Đồng thời, đề tài xây dựng kịch bản nghiệp vụ mô phỏng để đánh giá pipeline end-to-end ở mức sự kiện và cảnh báo (Dendorfer và cộng sự, 2020; Zheng và cộng sự, 2015; Wei và cộng sự, 2018; Han và cộng sự, 2023).
+P| Đề xuất hướng triển khai thực tế.
+P| Đề tài đưa ra khuyến nghị về cấu hình camera, yêu cầu phần cứng, quy trình vận hành human-in-the-loop, cơ chế lưu trữ dữ liệu, bảo vệ dữ liệu cá nhân và khả năng mở rộng hệ thống.
+P| Để hoàn thiện khả năng triển khai, hệ thống định vị là một Nghiên cứu Khả thi (Feasibility Study) và đề xuất lộ trình Validation trên dữ liệu thực với 3 bước:
+P| - Bước 1: Thu thập bộ dữ liệu pilot gồm 200+ sự kiện thực tế từ camera tại Hội An.
+P| - Bước 2: Gán nhãn thủ công chéo (ít nhất 2 annotator) để tạo Ground Truth mức nghiệp vụ.
+P| - Bước 3: Đo lường và tối ưu các chỉ số PR-AUC, tỷ lệ báo động giả mỗi giờ (False alerts/hour) và độ trễ cảnh báo (Latency) để đưa hệ thống vào vận hành thực tiễn.
+P| Bộ nhãn tối thiểu của dữ liệu pilot cần bao gồm: ID của người trong từng camera và liên kết giữa các camera; thời điểm đi vào, xuất hiện tại vùng vé, rời vùng quan sát và các đoạn bị che khuất; nhãn sự kiện ba trạng thái (có bằng chứng xác thực, thiếu bằng chứng, không xác định); cùng các tình huống dễ gây nhầm như đi theo nhóm, một người mua cho nhiều người, đi vòng, mua trễ hoặc camera mất tín hiệu.
+P| Mỗi sự kiện cần được hai người gán nhãn độc lập; các trường hợp bất đồng phải có quy tắc hòa giải và mức độ đồng thuận (inter-annotator agreement) cần được báo cáo.
+P| Dữ liệu được tách theo ngày hoặc phiên ghi hình, không chia ngẫu nhiên theo frame vì các frame liền nhau gần như giống nhau; toàn bộ hình ảnh của một người phải nằm trong cùng một tập để tránh rò rỉ danh tính giữa các tập huấn luyện và kiểm thử.
+P| Quy mô mẫu được tính theo số sự kiện chứ không theo số frame: với kỳ vọng độ nhạy khoảng 0,85 và sai số xấp xỉ ±0,05 ở mức tin cậy 95%, cần gần 196 sự kiện dương. Do dữ liệu cùng ngày hoặc cùng camera thường tương quan, số sự kiện thực tế nên cao hơn và khoảng tin cậy nên được tính bằng cluster bootstrap theo ngày, camera hoặc phiên ghi hình.
+P| 1.5. Câu hỏi nghiên cứu
+P| Đề tài tập trung trả lời ba câu hỏi nghiên cứu chính sau:
+P| RQ1: Khi kết hợp đặc trưng ngoại hình (Re-ID) với topology camera, thời gian di chuyển và tín hiệu vùng vé, hệ thống cải thiện khả năng phát hiện trường hợp thiếu bằng chứng xác thực đến mức nào so với phương pháp ngưỡng đơn giản?
+P| RQ2: Việc hiệu chỉnh độ bất định (uncertainty calibration) và cho phép hệ thống chuyển sang trạng thái từ chối kết luận (uncertain_insufficient_evidence) tác động như thế nào đến việc giảm tỷ lệ cảnh báo sai (false alerts)?
+P| RQ3: Phương pháp có duy trì được kết quả khi thay đổi ngày ghi hình, camera, mật độ người và điều kiện ánh sáng hay không? Trong phạm vi nghiên cứu khả thi, câu hỏi này được đánh giá gián tiếp qua sự đa dạng về mật độ và điều kiện quan sát của 7 sequence MOT17; việc kiểm chứng đầy đủ trên các điều kiện ghi hình mới thuộc lộ trình validation trên dữ liệu pilot (mục 1.4.2 và mục 3.15.4).
+P| 1.6. Đối tượng và phạm vi nghiên cứu
+P| 1.6.1. Đối tượng nghiên cứu
+P| Đối tượng nghiên cứu của đề tài là hệ thống phân tích video đa camera phục vụ phát hiện nghi vấn chưa mua vé tại khu du lịch mở. Cụ thể, đề tài tập trung vào người đi bộ xuất hiện trong video giám sát, tracklet của người trong từng camera, đặc trưng tái nhận diện người qua nhiều camera, sự kiện đi vào khu vực, sự kiện xuất hiện tại quầy vé hoặc hàng chờ, quá trình liên kết hành trình qua nhiều camera và cảnh báo nghi vấn chưa mua vé.
+P| 1.6.2. Phạm vi nghiên cứu
+P| Đề tài được giới hạn trong các phạm vi sau.
+P| Thứ nhất, không nhận diện danh tính thật của du khách.
+P| Hệ thống không sử dụng nhận diện khuôn mặt để xác định danh tính pháp lý của cá nhân. Việc liên kết chỉ dựa trên định danh tạm thời, ảnh crop thân người và embedding Re-ID. Phạm vi này phù hợp với bản chất của person re-identification, trong đó mục tiêu là liên kết các quan sát có khả năng thuộc cùng một người giữa nhiều camera dựa trên đặc trưng ngoại hình, không phải xác thực danh tính thật của cá nhân (Ye và cộng sự, 2021).
+P| Thứ hai, không kết luận vi phạm tự động.
+P| Output của hệ thống là cảnh báo nghi vấn, cần được nhân viên vận hành xác minh. Giới hạn này được đặt ra vì các thành phần như detection, tracking và Re-ID đều có khả năng sinh sai số trong điều kiện thực tế, đặc biệt khi có che khuất, ánh sáng thay đổi, mật độ người cao hoặc nhiều người mặc trang phục tương tự.
+P| Thứ ba, không xây dựng hệ thống bán vé hoàn chỉnh.
+P| Đề tài chỉ xem log giao dịch bán vé là nguồn dữ liệu bổ sung nếu có, không tập trung vào nghiệp vụ thanh toán, phát hành vé, quản lý doanh thu hoặc xác thực vé điện tử.
+P| Thứ tư, không huấn luyện mô hình lớn từ đầu.
+P| Đề tài ưu tiên sử dụng mô hình có sẵn trọng số huấn luyện và fine-tune có chọn lọc nếu cần. Mục tiêu chính là xây dựng pipeline khả thi, có khả năng giải thích và có thể đánh giá trong phạm vi tài nguyên của luận văn, không phải phát triển một kiến trúc deep learning hoàn toàn mới.
+P| Thứ năm, không giả định vùng phủ camera hoàn toàn kín.
+P| Trong thực tế, hệ thống camera có thể tồn tại điểm mù, mất khung hình, thay đổi ánh sáng hoặc che khuất bởi đám đông. Vì vậy, hệ thống chỉ sinh cảnh báo nghi vấn dựa trên bằng chứng quan sát được, không kết luận chắc chắn về hành vi của cá nhân ngoài vùng phủ camera.
+P| Thứ sáu, đánh giá bằng public dataset và kịch bản mô phỏng nghiệp vụ.
+P| Trong phạm vi khảo sát tài liệu của đề tài, chưa tìm thấy dataset công khai mô phỏng đầy đủ bối cảnh Hội An với nhãn nghiệp vụ “vào khu du lịch nhưng không đến quầy vé”. Vì vậy, đề tài sử dụng các dataset công khai cho từng bài toán con như MOT20, Market-1501, MSMT17 và MMPTRACK nếu phù hợp, kết hợp với lớp mô phỏng nghiệp vụ để đánh giá end-to-end.
+P| Trong nghiên cứu này, ticket evidence được hiểu là bằng chứng mô phỏng/proxy phục vụ kiểm thử pipeline, không phải dữ liệu giao dịch vé thật. Vì vậy, trạng thái không có ticket evidence chỉ được dùng để sinh nghi vấn cần kiểm tra, không được diễn giải là kết luận người đó chưa mua vé.
+P| 1.7. Phương pháp nghiên cứu
+P| Đề tài sử dụng phương pháp nghiên cứu định hướng ứng dụng, kết hợp giữa khảo sát tài liệu, thiết kế hệ thống, thực nghiệm trên dữ liệu công khai và đánh giá theo kịch bản nghiệp vụ.
+P| 1.7.1. Khảo sát tài liệu
+P| Đề tài khảo sát các hướng tiếp cận chính trong object detection cho người đi bộ, multi-object tracking, person re-identification, multi-camera tracking, video analytics, zone analytics, event reasoning và privacy-aware surveillance. Các công trình gần đây về YOLO, ByteTrack, BoT-SORT, TransReID, FastReID, MOT20, HOTA và MMPTRACK được sử dụng làm cơ sở tham khảo cho việc lựa chọn mô hình, thiết kế pipeline và xây dựng tiêu chí đánh giá (Bochkovskiy và cộng sự, 2020; Wang và cộng sự, 2023; Wang và cộng sự, 2024; Zhang và cộng sự, 2022; Aharon và cộng sự, 2022; He và cộng sự, 2021; Luo và cộng sự, 2020; Dendorfer và cộng sự, 2020; Luiten và cộng sự, 2021; Han và cộng sự, 2023).
+P| 1.7.2. Thiết kế pipeline hệ thống
+P| Pipeline được thiết kế theo kiến trúc mô-đun để dễ thay thế, đánh giá và triển khai. Kiến trúc tổng quát gồm các bước:
+P| MOT17 image sequences / video streams
+P| → Video ingestion & frame indexing
+P| → Time metadata synchronization
+P| → Person detection
+P| → Single-camera multi-object tracking
+P| → Tracklet generation & quality filtering
+P| → Representative crop extraction
+P| → Re-ID feature extraction
+P| → Simulated multi-camera association
+P| → Global temporary ID management
+P| → Simulated ticket evidence assignment
+P| → ROI / zone / event analytics
+P| → Journey state modeling
+P| → Suspicion scoring
+P| → Alert generation
+P| → Visual evidence packaging
+P| → Human verification
+P| → Evaluation & ablation analysis
+P| Cách thiết kế mô-đun cho phép đánh giá từng thành phần theo bộ dữ liệu và chỉ số phù hợp. Detection có thể được đánh giá bằng độ chính xác phát hiện; tracking có thể được đánh giá bằng MOTA, IDF1 hoặc HOTA; Re-ID có thể được đánh giá bằng Rank-1 accuracy và mean Average Precision; trong khi pipeline nghiệp vụ có thể được đánh giá bằng precision, recall, false alert rate và alert latency ở mức cảnh báo (Dendorfer và cộng sự, 2020; Luiten và cộng sự, 2021; Ye và cộng sự, 2021).
+P| 1.7.3. Thực nghiệm và đánh giá
+P| Thực nghiệm của đề tài được chia thành ba nhóm.
+P| Nhóm 1: Thực nghiệm tracking.
+P| Đề tài sử dụng MOT20 hoặc các benchmark MOT phù hợp để đánh giá khả năng phát hiện người, duy trì track ID, chất lượng tracklet, tỷ lệ mất dấu và nhầm ID. MOT20 tập trung vào các cảnh đông người, phù hợp để kiểm tra độ ổn định của tracking trong điều kiện mật độ cao (Dendorfer và cộng sự, 2020).
+P| Nhóm 2: Thực nghiệm Re-ID.
+P| Đề tài sử dụng Market-1501 hoặc MSMT17 để đánh giá chất lượng embedding, khả năng truy xuất cùng người và độ phù hợp của mô hình Re-ID nhẹ. Mặc dù Market-1501 và MSMT17 được công bố trước 2020, hai bộ dữ liệu này vẫn thường được sử dụng trong nghiên cứu Re-ID để so sánh khả năng truy xuất người trong môi trường đa camera. Trong đó, MSMT17 có độ đa dạng cao hơn về số lượng camera, điều kiện ánh sáng và bối cảnh, phù hợp để kiểm tra khả năng tổng quát hóa của embedding Re-ID (Zheng và cộng sự, 2015; Wei và cộng sự, 2018; Ye và cộng sự, 2021).
+P| Nhóm 3: Thực nghiệm pipeline nghiệp vụ.
+P| Do chưa có dataset công khai mô phỏng đầy đủ bài toán phát hiện nghi vấn chưa mua vé trong khu du lịch mở, đề tài xây dựng kịch bản mô phỏng nghiệp vụ gồm camera lối vào, camera quầy vé, ROI hàng chờ, ROI giao dịch, khoảng thời gian di chuyển hợp lý và ground truth event-level. Mục tiêu là đánh giá khả năng hệ thống sinh cảnh báo nghi vấn theo logic nghiệp vụ, thay vì chỉ đánh giá từng mô hình riêng lẻ.
+P| Bên cạnh các chỉ số kỹ thuật, đề tài đánh giá pipeline ở cấp độ nghiệp vụ thông qua các chỉ số như tỷ lệ cảnh báo đúng, tỷ lệ cảnh báo sai, tỷ lệ bỏ sót cảnh báo, độ trễ cảnh báo và khả năng cung cấp bằng chứng phục vụ xác minh. Cách đánh giá này giúp phản ánh tốt hơn giá trị ứng dụng của hệ thống trong bối cảnh vận hành thực tế.
+P| 1.8. Bố cục đề án
+P| Đề án được tổ chức thành năm chương như sau.
+P| 
+Chương 1. Xác định vấn đề nghiên cứu.
+P| Trình bày bối cảnh, sự cần thiết, khoảng trống nghiên cứu, vấn đề nghiên cứu, mục tiêu, câu hỏi nghiên cứu, phạm vi, phương pháp và đóng góp dự kiến của đề tài.
+P| Chương 2. Cơ sở lý thuyết và các nghiên cứu liên quan.
+P| Trình bày các nền tảng về computer vision, object detection, multi-object tracking, person re-identification, multi-camera tracking, video analytics, zone analytics, các dataset liên quan và các nghiên cứu gần đây.
+P| Chương 3. Phương pháp nghiên cứu và thiết kế hệ thống.
+P| Mô tả kiến trúc pipeline, lựa chọn mô hình, thuật toán, cơ chế association, quản lý trạng thái hành trình, thiết kế ROI, cơ chế tính điểm nghi vấn và quy trình sinh cảnh báo.
+P| Chương 4. Thực nghiệm và đánh giá.
+P| Trình bày dataset sử dụng, thiết lập thực nghiệm, kết quả từng module và kết quả pipeline nghiệp vụ mô phỏng. Các kết quả được đánh giá ở cả cấp độ kỹ thuật và cấp độ cảnh báo nghiệp vụ.
+P| Chương 5. Kết luận và hướng phát triển.
+P| Tổng kết kết quả đạt được, hạn chế của đề tài, khả năng ứng dụng thực tế và hướng phát triển như tích hợp log bán vé, tối ưu edge AI, bổ sung active learning hoặc triển khai thử nghiệm tại hiện trường.
+P| CHƯƠNG 2. LƯỢC KHẢO CƠ SỞ LÝ THUYẾT VÀ NGHIÊN CỨU TRƯỚC
+P| 2.1. Tổng quan chương
+P| Chương 2 trình bày cơ sở lý thuyết và các nghiên cứu liên quan làm nền tảng cho việc xây dựng hệ thống phát hiện nghi vấn chưa mua vé trong khu du lịch mở bằng phân tích video đa camera. Khác với các bài toán computer vision đơn lẻ, đề tài này yêu cầu tích hợp nhiều thành phần kỹ thuật, bao gồm phát hiện người, theo dõi đa đối tượng, tái nhận diện người, liên kết đa camera, phân tích vùng quan tâm và suy luận sự kiện theo luật nghiệp vụ.
+P| Nội dung chương được triển khai theo trình tự từ nền tảng đến ứng dụng. Trước hết, chương trình bày khái niệm về video analytics trong hệ thống camera giám sát, sau đó phân tích các thành phần kỹ thuật chính như object detection, multi-object tracking, person re-identification và multi-camera association. Tiếp theo, chương trình bày các chỉ số đánh giá, dataset thường dùng, các nghiên cứu liên quan, vấn đề quyền riêng tư và khoảng trống còn tồn tại so với bài toán của đề tài.
+P| Về mặt định hướng, chương này không nhằm chứng minh rằng đề tài đề xuất một mô hình deep learning hoàn toàn mới. Thay vào đó, chương làm rõ cơ sở khoa học cho việc lựa chọn, tích hợp và đánh giá các mô hình/thuật toán đã được công bố, từ đó xây dựng một pipeline ứng dụng có khả năng hỗ trợ phát hiện cảnh báo nghi vấn trong điều kiện thực tế.
+P| 2.2. Video analytics trong hệ thống camera giám sát
+P| 2.2.1. Khái niệm video analytics
+P| Video analytics là quá trình sử dụng các thuật toán thị giác máy tính và học máy để trích xuất thông tin có ý nghĩa từ dữ liệu video. Trong bối cảnh camera giám sát, video analytics có thể bao gồm nhiều nhiệm vụ như phát hiện đối tượng, theo dõi đối tượng, đếm người, nhận diện hành vi, phát hiện xâm nhập vùng cấm, phát hiện bất thường và phân tích luồng di chuyển.
+P| Trong các hệ thống truyền thống, camera chủ yếu đóng vai trò thiết bị ghi hình hoặc hỗ trợ quan sát trực tiếp. Tuy nhiên, khi số lượng camera tăng lên, việc con người theo dõi thủ công toàn bộ luồng video trở nên khó khăn. Video analytics giúp chuyển đổi dữ liệu video thô thành các sự kiện có cấu trúc, ví dụ: một người đi qua lối vào, một người đứng trong vùng hàng chờ, một người xuất hiện tại quầy vé trong một khoảng thời gian nhất định, hoặc một người di chuyển qua nhiều camera khác nhau.
+P| Đối với đề tài này, video analytics không chỉ phát hiện đối tượng mà còn chuyển đổi quan sát thành sự kiện có cấu trúc. Hệ thống cần phân tích chuỗi sự kiện theo thời gian và không gian để xác định liệu một người đã đi vào khu tham quan nhưng không có bằng chứng xuất hiện tại quầy vé hay chưa. Vì vậy, bài toán thuộc nhóm event-level video analytics, trong đó các kết quả cấp thấp như bounding box, track ID và embedding Re-ID cần được chuyển hóa thành sự kiện nghiệp vụ.
+P| 2.2.2. Video analytics trong khu du lịch mở
+P| Khu du lịch mở có đặc điểm khác với các khu vực có cổng kiểm soát cố định. Trong khu vực có barrier, turnstile hoặc cổng QR, hành vi vào khu tham quan thường gắn với một điểm xác thực cụ thể. Ngược lại, trong khu vực mở, khách có thể tiếp cận từ nhiều hướng, có thể đi theo đoàn, di chuyển qua nhiều tuyến khác nhau hoặc xuất hiện trong vùng quầy vé không theo trình tự tuyến tính.
+P| Đặc điểm này làm cho bài toán kiểm soát vé trở nên phức tạp ở cấp cá nhân. Đếm số người tại lối vào có thể cung cấp thông tin về lưu lượng, nhưng không đủ để xác định người nào đã mua vé. Log giao dịch bán vé có thể cho biết số lượt vé đã được bán, nhưng không trực tiếp liên kết với từng cá nhân trong video nếu không có cơ chế xác thực cá nhân. Vì vậy, hệ thống cần kết hợp nhiều nguồn bằng chứng: hành trình thị giác, vùng quan tâm, thời gian xuất hiện và luật nghiệp vụ.
+P| Trong phạm vi đề tài, camera được xem là nguồn dữ liệu chính để quan sát hành trình. Hệ thống không xác định danh tính thật của khách, mà chỉ tạo định danh tạm thời nhằm liên kết các quan sát có khả năng thuộc cùng một người trong phiên giám sát. Đây là cách tiếp cận phù hợp hơn với yêu cầu ứng dụng và hạn chế rủi ro quyền riêng tư so với nhận diện khuôn mặt.
+P| 2.3. Phát hiện người trong video
+P| 2.3.1. Bài toán object detection
+P| Object detection là bài toán xác định vị trí và lớp của các đối tượng trong ảnh hoặc khung hình video. Kết quả đầu ra thường gồm bounding box, nhãn lớp và độ tin cậy dự đoán. Trong đề tài này, lớp đối tượng quan trọng nhất là person, vì hệ thống cần phát hiện và theo dõi người đi bộ trong khu vực quan sát.
+P| Về mặt kỹ thuật, các mô hình object detection hiện đại thường được chia thành hai nhóm chính: detector hai giai đoạn và detector một giai đoạn. Detector hai giai đoạn thường tạo region proposals trước, sau đó phân loại và hiệu chỉnh bounding box. Detector một giai đoạn dự đoán trực tiếp bounding box và class score trên ảnh đầu vào, nhờ đó thường có tốc độ suy luận nhanh hơn và phù hợp hơn với các bài toán video thời gian thực hoặc gần thời gian thực.
+P| Trong các hệ thống camera đa điểm, detector cần đáp ứng một số yêu cầu thực tế: tốc độ xử lý đủ nhanh, khả năng phát hiện người ở nhiều kích thước khác nhau, độ ổn định trong điều kiện ánh sáng thay đổi, và khả năng tích hợp với tracker phía sau. Nếu detector bỏ sót người hoặc sinh nhiều false positive, chất lượng tracking và Re-ID ở các bước sau sẽ bị ảnh hưởng.
+P| 2.3.2. Các mô hình YOLO và khả năng ứng dụng
+P| YOLO là một trong những hướng tiếp cận phổ biến trong object detection nhờ thiết kế một giai đoạn và khả năng xử lý nhanh. YOLOv4 do Bochkovskiy và cộng sự (2020) đề xuất đã nhấn mạnh việc cân bằng giữa tốc độ và độ chính xác thông qua các kỹ thuật huấn luyện và kiến trúc mạng. YOLOv7 của Wang và cộng sự (2023) tiếp tục cải thiện hiệu quả huấn luyện và suy luận, đặc biệt trong bối cảnh real-time object detection. 
+P| Trong đề tài này, các phiên bản YOLO được xem là lựa chọn phù hợp cho module phát hiện người vì ba lý do chính. Thứ nhất, YOLO có nhiều triển khai mã nguồn mở, thuận lợi cho việc thực nghiệm và tái lập. Thứ hai, các mô hình YOLO có nhiều kích thước khác nhau, cho phép lựa chọn giữa tốc độ và độ chính xác tùy theo tài nguyên tính toán. Thứ ba, output của YOLO có thể tích hợp trực tiếp với các tracker phổ biến như ByteTrack hoặc BoT-SORT.
+P| Tuy nhiên, việc sử dụng YOLO không có nghĩa là hệ thống có thể “đảm bảo” phát hiện chính xác trong mọi tình huống. Các yếu tố như che khuất, người đứng quá xa camera, ánh sáng yếu, chuyển động nhanh hoặc góc nhìn không thuận lợi vẫn có thể làm giảm chất lượng detection. Vì vậy, đề tài cần đánh giá detector trong pipeline tổng thể thay vì chỉ dựa trên kết quả công bố của mô hình.
+P| 2.3.3. Vai trò của detection trong pipeline đề tài
+P| Trong pipeline phát hiện nghi vấn chưa mua vé, detection là điểm khởi đầu cho toàn bộ quá trình xử lý. Mỗi bounding box người được phát hiện sẽ là đầu vào cho tracker, sau đó tạo ra tracklet, ảnh crop và đặc trưng Re-ID. Nếu detection sai, các bước sau có thể bị ảnh hưởng dây chuyền.
+P| Các lỗi detection thường gặp gồm:
+P| False negative: người có mặt nhưng không được phát hiện.
+P| False positive: vùng không phải người nhưng bị nhận là người.
+P| Bounding box không chính xác: box quá rộng, quá hẹp hoặc lệch khỏi thân người.
+P| Detection không ổn định: người lúc được phát hiện, lúc bị mất qua các khung hình liên tiếp.
+P| Với bài toán của đề tài, false negative tại lối vào có thể làm hệ thống bỏ sót một hành trình cần theo dõi. False negative tại quầy vé có thể làm tăng cảnh báo sai vì hệ thống không ghi nhận được bằng chứng người đó đã xuất hiện tại vùng quầy vé. Do đó, detection không chỉ ảnh hưởng đến độ chính xác kỹ thuật mà còn tác động trực tiếp đến độ tin cậy của cảnh báo nghiệp vụ.
+P| 2.4. Theo dõi đa đối tượng trong video
+P| 2.4.1. Khái niệm multi-object tracking
+P| Multi-object tracking là bài toán duy trì định danh của nhiều đối tượng qua các khung hình liên tiếp trong video. Đối với mỗi đối tượng, tracker cần liên kết các detection ở các thời điểm khác nhau thành một chuỗi quan sát gọi là track hoặc tracklet. Trong bài toán giám sát người, mỗi tracklet biểu diễn hành trình ngắn của một người trong phạm vi một camera.
+P| MOT thường bao gồm hai nhiệm vụ chính: ước lượng vị trí đối tượng theo thời gian và liên kết detection giữa các khung hình. Trong nhiều hệ thống hiện đại, tracking thường được triển khai theo mô hình tracking-by-detection, nghĩa là detector phát hiện đối tượng ở từng frame, sau đó tracker thực hiện association để nối các detection thành track.
+P| Các thành phần thường xuất hiện trong tracker gồm: mô hình chuyển động, ví dụ Kalman Filter; phép đo khoảng cách không gian như IoU; chiến lược matching như Hungarian algorithm; ngưỡng confidence của detection; đặc trưng ngoại hình nếu tracker có tích hợp Re-ID; cơ chế quản lý track mới, track mất và track bị xóa.
+P| Trong đề tài này, MOT được sử dụng để duy trì ID tạm thời của người trong từng camera. Đây là bước trung gian trước khi liên kết các tracklet giữa nhiều camera.
+P| 2.4.2. ByteTrack
+P| ByteTrack là thuật toán multi-object tracking được Zhang và cộng sự (2022) đề xuất. Điểm nổi bật của ByteTrack là chiến lược association sử dụng cả detection có confidence cao và confidence thấp. Thay vì loại bỏ hoàn toàn các detection có confidence thấp, ByteTrack dùng chúng trong giai đoạn liên kết sau để khôi phục các đối tượng có thể bị detector đánh giá thấp do che khuất, chuyển động hoặc chất lượng hình ảnh kém.
+P| Cách tiếp cận này phù hợp với bài toán giám sát trong môi trường đông người vì người có thể bị che khuất một phần hoặc xuất hiện trong vùng có chất lượng hình ảnh không ổn định. Việc tận dụng các detection confidence thấp có thể giúp giảm nguy cơ mất track trong một số tình huống. Tuy nhiên, chiến lược này cũng cần được kiểm soát bằng ngưỡng và logic association phù hợp để hạn chế việc nối nhầm detection không thuộc cùng một người.
+P| Trong đề tài, ByteTrack có thể được sử dụng như một lựa chọn tracker gọn nhẹ, dễ triển khai và phù hợp với pipeline có detector YOLO ở phía trước. Ưu điểm của ByteTrack là đơn giản, tốc độ xử lý tốt và không nhất thiết yêu cầu mô hình Re-ID trong tracking nội camera. Hạn chế là trong các tình huống có nhiều người mặc tương tự, di chuyển giao nhau hoặc che khuất lâu, việc chỉ dựa nhiều vào thông tin vị trí có thể dẫn đến ID switch.
+P| 2.4.3. BoT-SORT
+P| BoT-SORT do Aharon và cộng sự (2022) đề xuất, là một phương pháp tracking nhiều người dựa trên việc cải thiện association giữa các detection và track. BoT-SORT kết hợp nhiều thành phần như motion model, camera motion compensation và đặc trưng Re-ID để tăng độ ổn định của ID trong các bối cảnh phức tạp.
+P| So với các tracker chỉ dựa chủ yếu vào chuyển động và vị trí, BoT-SORT có lợi thế khi có sự thay đổi camera motion hoặc khi các đối tượng có quỹ đạo gần nhau. Việc sử dụng đặc trưng ngoại hình giúp bổ sung thông tin cho association, đặc biệt trong trường hợp người bị che khuất ngắn hạn hoặc xuất hiện lại sau một khoảng thời gian.
+P| Trong đề tài, BoT-SORT có thể được xem là lựa chọn phù hợp khi cần độ ổn định ID cao hơn trong một camera. Tuy nhiên, việc tích hợp đặc trưng Re-ID có thể làm tăng chi phí tính toán. Vì vậy, lựa chọn giữa ByteTrack và BoT-SORT cần dựa trên tiêu chí thực nghiệm, bao gồm tốc độ xử lý, độ ổn định ID, số lần ID switch, độ dài tracklet và khả năng chạy trên tài nguyên cloud phổ thông.
+P| 2.4.4. MOT trong bối cảnh đông người
+P| Trong môi trường đông người, MOT thường gặp nhiều thách thức hơn so với các cảnh đơn giản. MOT20 là benchmark được Dendorfer và cộng sự (2020) giới thiệu nhằm đánh giá tracking trong cảnh đông đúc, nơi đối tượng thường bị che khuất, xuất hiện sát nhau và khó duy trì định danh. Đây là loại bối cảnh có liên quan đến khu du lịch, đặc biệt vào giờ cao điểm hoặc tại khu vực quầy vé.
+P| Các vấn đề chính của tracking trong cảnh đông người gồm: người bị che khuất bởi người khác; nhiều người mặc trang phục tương tự; đường đi giao nhau; bounding box chồng lấn; người ra/vào vùng quan sát liên tục; thay đổi ánh sáng hoặc góc nhìn; camera bị rung hoặc có motion nền.
+P| Đối với đề tài này, tracking trong camera lối vào và camera quầy vé có vai trò đặc biệt quan trọng. Nếu track tại lối vào bị đứt quá sớm, hệ thống khó tạo hành trình ban đầu. Nếu track tại quầy vé bị sai hoặc mất, hệ thống có thể không ghi nhận được bằng chứng người đã đến quầy vé, dẫn đến cảnh báo sai. Vì vậy, chất lượng tracking cần được đánh giá không chỉ bằng chỉ số kỹ thuật mà còn bằng tác động của nó đến cảnh báo nghiệp vụ.
+P| 2.5. Tái nhận diện người
+P| 2.5.1. Khái niệm person re-identification
+P| Person re-identification là bài toán liên kết các ảnh hoặc đoạn track có khả năng thuộc cùng một người nhưng được ghi nhận bởi các camera khác nhau hoặc tại các thời điểm khác nhau. Đầu vào của Re-ID thường là ảnh crop của người; đầu ra là vector đặc trưng, còn gọi là embedding. Các embedding sau đó được so sánh bằng khoảng cách hoặc độ tương đồng, ví dụ cosine similarity hoặc Euclidean distance.
+P| Trong hệ thống đa camera, Re-ID giúp trả lời câu hỏi: một người xuất hiện ở camera A có phải là cùng người xuất hiện ở camera B hay không. Đây là thành phần quan trọng đối với đề tài vì người đi vào khu du lịch có thể xuất hiện ở nhiều camera khác nhau trước khi đến hoặc không đến khu vực quầy vé.
+P| Tuy nhiên, Re-ID không đồng nghĩa với nhận diện danh tính thật. Re-ID chỉ liên kết các quan sát dựa trên đặc trưng ngoại hình như quần áo, hình dáng, màu sắc và một số đặc trưng thị giác khác. Hệ thống không biết tên, giấy tờ hoặc danh tính pháp lý của người được quan sát. Đây là điểm cần phân biệt rõ để tránh nhầm lẫn giữa Re-ID và face recognition.
+P| 2.5.2. Thách thức của person Re-ID
+P| Ye và cộng sự (2021) cho thấy person Re-ID vẫn tồn tại nhiều thách thức, đặc biệt trong môi trường thực tế. Các thách thức quan trọng gồm:
+P| Viewpoint variation: cùng một người có thể được quan sát từ phía trước, phía sau hoặc bên hông.
+P| Illumination variation: ánh sáng giữa các camera có thể khác nhau.
+P| Occlusion: người có thể bị che bởi vật thể hoặc người khác.
+P| Pose variation: tư thế đi, đứng, quay người thay đổi theo thời gian.
+P| Low resolution: ảnh crop nhỏ hoặc mờ làm giảm chất lượng embedding.
+P| Background clutter: nền ảnh gây nhiễu cho đặc trưng người.
+P| Similar clothing: nhiều người mặc trang phục tương tự gây nhầm lẫn.
+P| Domain gap: dữ liệu huấn luyện và dữ liệu triển khai có phân phối khác nhau.
+P| Những thách thức này ảnh hưởng trực tiếp đến đề tài. Trong khu du lịch, người có thể đi theo đoàn, nhiều người mặc áo đồng phục, áo mưa, nón, balo hoặc trang phục tương tự. Camera có thể đặt ở các góc nhìn khác nhau, ánh sáng thay đổi theo thời điểm trong ngày. Vì vậy, nếu chỉ dựa vào Re-ID similarity mà không dùng thêm ràng buộc không gian-thời gian, hệ thống có nguy cơ liên kết sai người.
+P| 2.5.3. Các hướng tiếp cận Re-ID gần đây
+P| Các nghiên cứu Re-ID hiện đại chủ yếu dựa trên học sâu. Mô hình được huấn luyện để đưa ảnh người vào một không gian embedding, trong đó ảnh của cùng một người có khoảng cách gần nhau hơn so với ảnh của người khác. Các phương pháp thường sử dụng kết hợp loss phân loại ID và loss metric learning như triplet loss.
+P| FastReID do Luo và cộng sự (2020) giới thiệu là một toolbox PyTorch cho general instance re-identification. FastReID không phải là một mô hình đơn lẻ, mà là một framework hỗ trợ nhiều kiến trúc, chiến lược huấn luyện, evaluation protocol và baseline Re-ID. Trong đề tài, FastReID có thể được sử dụng như nền tảng triển khai hoặc tham khảo baseline để trích xuất embedding.
+P| TransReID do He và cộng sự (2021) đề xuất khai thác Transformer cho bài toán object re-identification. Transformer có khả năng mô hình hóa quan hệ toàn cục trong ảnh, giúp cải thiện biểu diễn đặc trưng trong một số bối cảnh. Tuy nhiên, các mô hình Transformer thường có chi phí tính toán cao hơn so với các backbone CNN nhẹ. Vì vậy, trong đề tài, TransReID phù hợp để tham khảo về mặt học thuật hoặc so sánh, còn lựa chọn mô hình triển khai cần cân nhắc thêm về tài nguyên.
+P| Với mục tiêu gọn nhẹ, đề tài có thể ưu tiên các mô hình Re-ID có chi phí tính toán thấp hơn, ví dụ backbone CNN nhẹ hoặc các biến thể OSNet. OSNet được đề xuất trước 2020, nhưng vẫn thường được sử dụng trong các thư viện Re-ID thực hành nhờ khả năng cân bằng giữa hiệu năng và chi phí tính toán. Khi sử dụng các mô hình này, đề tài cần nêu rõ lý do giữ lại tài liệu trước 2020 là vì tính nền tảng và tính phổ biến trong triển khai Re-ID.
+P| Các hướng nghiên cứu gần đây cũng tập trung vào hai vấn đề quan trọng khi đưa Re-ID vào vận hành thực tế. Thứ nhất là domain shift: Li và Gong (2024) đề xuất phương pháp hiệu chỉnh mục tiêu chính-phụ nhằm giảm thiểu dịch chuyển miền khi triển khai Re-ID sang bối cảnh mới, vấn đề trực tiếp liên quan đến việc chuyển mô hình từ bộ dữ liệu huấn luyện sang camera tại khu du lịch. Thứ hai là quyền riêng tư: Kansal và cộng sự (2024) giới thiệu khung Re-ID hai giai đoạn nhằm tăng cường bảo vệ dữ liệu cá nhân, phù hợp với định hướng không nhận diện danh tính thật và giới hạn lưu trữ dữ liệu của đề tài.
+P| 2.5.4. Re-ID ở cấp ảnh và Re-ID ở cấp tracklet
+P| Trong các benchmark Re-ID truyền thống, hệ thống thường so sánh ảnh query với gallery để tìm ảnh cùng ID. Tuy nhiên, trong video thực tế, mỗi người thường có nhiều ảnh crop liên tiếp trong một tracklet. Vì vậy, có thể sử dụng Re-ID ở cấp tracklet bằng cách tổng hợp embedding từ nhiều frame.
+P| Một số cách tổng hợp embedding tracklet gồm: lấy trung bình embedding của nhiều crop; chọn các crop có chất lượng tốt nhất; loại bỏ crop bị mờ, quá nhỏ hoặc bị che khuất; dùng weighted average theo confidence; cập nhật embedding theo thời gian khi có quan sát mới.
+P| Re-ID cấp tracklet thường ổn định hơn Re-ID cấp ảnh đơn lẻ vì giảm ảnh hưởng của một frame xấu. Trong đề tài, cách tiếp cận này phù hợp vì hệ thống không cần ra quyết định dựa trên một ảnh duy nhất. Thay vào đó, mỗi người có thể được biểu diễn bằng một tập bằng chứng gồm nhiều crop từ nhiều thời điểm khác nhau.
+P| 2.6. Liên kết đa camera và ràng buộc không gian-thời gian
+P| 2.6.1. Bài toán multi-camera association
+P| Multi-camera association là bài toán liên kết các tracklet hoặc quan sát từ nhiều camera khác nhau để xác định chúng có thể thuộc cùng một người hay không. Đây là bước trung tâm của hệ thống giám sát đa camera. Trong đề tài, multi-camera association được sử dụng để nối hành trình từ camera lối vào đến camera quầy vé hoặc các camera trung gian.
+P| Khác với tracking trong một camera, multi-camera association khó hơn vì không có sự liên tục hình ảnh giữa các camera. Một người có thể biến mất khỏi camera A và xuất hiện sau đó ở camera B sau vài giây hoặc vài phút. Do đó, hệ thống cần sử dụng đồng thời đặc trưng ngoại hình và ngữ cảnh không gian-thời gian.
+P| Các thông tin thường dùng trong association gồm: độ tương đồng Re-ID giữa hai tracklet; thời điểm kết thúc tracklet ở camera trước; thời điểm bắt đầu tracklet ở camera sau; khoảng thời gian di chuyển hợp lý giữa hai camera; hướng di chuyển; topology camera; vùng vào/ra trong từng camera; chất lượng tracklet và ảnh crop.
+P| Trong đề tài, association không nên chỉ dựa vào similarity ngoại hình. Ví dụ, nếu hai tracklet có ngoại hình giống nhau nhưng thời gian di chuyển giữa hai camera là không khả thi, hệ thống nên loại bỏ hoặc giảm điểm liên kết đó.
+P| 2.6.2. Ràng buộc không gian-thời gian
+P| Ràng buộc không gian-thời gian giúp giới hạn tập ứng viên Re-ID dựa trên logic di chuyển thực tế. Giả sử camera A quan sát lối vào và camera B quan sát quầy vé. Nếu thời gian đi bộ hợp lý từ A đến B là từ 2 đến 8 phút, thì một tracklet ở B xuất hiện sau tracklet ở A chỉ 5 giây hoặc sau 30 phút có thể không phải là cùng một người, trừ khi có tình huống đặc biệt.
+P| Ràng buộc không gian-thời gian có thể được biểu diễn thông qua: ma trận topology giữa các camera; khoảng thời gian di chuyển tối thiểu và tối đa; xác suất chuyển tiếp giữa các camera; thứ tự tuyến di chuyển; vùng exit ở camera trước và vùng entry ở camera sau.
+P| Trong hệ thống phát hiện nghi vấn chưa mua vé, ràng buộc này còn có vai trò nghiệp vụ. Hệ thống cần xác định khoảng thời gian hợp lý để một người từ lối vào có thể đến quầy vé. Nếu quá khoảng thời gian này mà không có bằng chứng xuất hiện tại vùng quầy vé, hệ thống có thể tăng điểm nghi vấn. Tuy nhiên, ngưỡng thời gian cần được thiết kế cẩn thận để hạn chế cảnh báo sai trong các trường hợp người dừng lại, đi theo đoàn, quay lại, hoặc nằm ngoài vùng phủ camera.
+P| 2.6.3. Multi-camera multi-person tracking
+P| Multi-camera multi-person tracking mở rộng bài toán MOT từ một camera sang nhiều camera. Han và cộng sự (2023) giới thiệu MMPTRACK, một benchmark quy mô lớn cho bài toán theo dõi nhiều người trên nhiều camera trong môi trường đông người. Các benchmark dạng này có ý nghĩa vì chúng cung cấp dữ liệu và nhãn để đánh giá khả năng liên kết tracklet giữa các camera.
+P| Tuy nhiên, các benchmark multi-camera tracking thường tập trung vào chất lượng duy trì định danh qua nhiều camera, chưa trực tiếp mô hình hóa các sự kiện nghiệp vụ như mua vé, đứng ở quầy vé hoặc sinh cảnh báo nghi vấn. Vì vậy, trong đề tài, các benchmark multi-camera có thể hỗ trợ đánh giá năng lực association, nhưng vẫn cần lớp mô phỏng nghiệp vụ để đánh giá end-to-end.
+P| 2.7. Phân tích vùng quan tâm và suy luận sự kiện
+P| 2.7.1. Vùng quan tâm trong video analytics
+P| Vùng quan tâm, hay Region of Interest, là khu vực được định nghĩa trước trong khung hình để hệ thống tập trung phân tích sự kiện. Trong đề tài, ROI có thể gồm: vùng lối vào khu tham quan; vùng quầy vé; vùng hàng chờ; vùng giao dịch; vùng đi vòng hoặc lối phụ; vùng ra khỏi camera.
+P| Việc sử dụng ROI giúp chuyển kết quả detection/tracking thành sự kiện có ý nghĩa. Ví dụ, khi centroid hoặc phần đáy bounding box của một track đi vào vùng quầy vé và ở lại đủ lâu, hệ thống có thể ghi nhận sự kiện “xuất hiện tại quầy vé”. Khi track cắt qua một đường ảo tại lối vào theo hướng xác định, hệ thống có thể ghi nhận sự kiện “đi vào khu tham quan”.
+P| 2.7.2. Line crossing và dwell time
+P| Line crossing là kỹ thuật phát hiện khi đối tượng đi qua một đường ảo trong khung hình. Trong bài toán này, line crossing có thể dùng để xác định sự kiện đi vào khu tham quan hoặc đi vào vùng quầy vé. Tuy nhiên, line crossing cần kết hợp hướng di chuyển để tránh nhầm giữa người đi vào và người đi ra.
+P| Dwell time là thời gian một track ở trong một ROI. Đối với quầy vé, dwell time giúp phân biệt giữa người chỉ đi ngang qua và người có khả năng đứng chờ hoặc thực hiện giao dịch. Ví dụ, nếu một người đi qua vùng quầy vé trong 1–2 giây, đây có thể chưa đủ là bằng chứng mua vé. Nếu người đó ở trong vùng hàng chờ hoặc quầy giao dịch trong một khoảng thời gian hợp lý, hệ thống có thể xem đây là bằng chứng hỗ trợ trạng thái đã đến quầy vé.
+P| Tuy nhiên, dwell time không thể chứng minh chắc chắn giao dịch mua vé đã diễn ra. Một người có thể đứng gần quầy nhưng không mua vé, hoặc một người khác có thể mua vé thay cho cả nhóm. Vì vậy, trong đề tài, dwell time chỉ nên được dùng như một bằng chứng phụ trong scoring, không phải điều kiện kết luận tuyệt đối.
+P| 2.7.3. Suy luận sự kiện nghiệp vụ
+P| Suy luận sự kiện nghiệp vụ là quá trình chuyển đổi các tín hiệu kỹ thuật thành trạng thái có ý nghĩa cho vận hành. Trong đề tài, các tín hiệu kỹ thuật gồm bounding box, track ID, embedding, ROI event, timestamp và camera ID. Các trạng thái nghiệp vụ có thể gồm: đã đi vào khu tham quan; đã xuất hiện tại vùng quầy vé; đã xuất hiện tại vùng hàng chờ; chưa tìm thấy bằng chứng tại quầy vé; quá thời gian di chuyển hợp lý; nghi vấn cần xác minh.
+P| Một chuỗi sự kiện đơn giản có thể được mô tả như sau:
+P| Person detected at entrance camera
+P| → Track created
+P| → Global temporary ID assigned
+P| → No matching appearance at ticket counter ROI within time window
+P| → Suspicion score increases
+P| → Alert generated for human verification
+P| Điểm quan trọng là hệ thống cần lưu lại bằng chứng cho từng bước, thay vì chỉ trả về một nhãn cuối cùng. Điều này giúp nhân viên vận hành có thể kiểm tra lại lý do hệ thống sinh cảnh báo.
+P| 2.8. Tính điểm nghi vấn và cảnh báo có khả năng giải thích
+P| 2.8.1. Khái niệm suspicion scoring
+P| Suspicion scoring là cơ chế tính điểm cho mỗi hành trình dựa trên các yếu tố quan sát được. Mục tiêu của scoring không phải là kết luận chắc chắn một người chưa mua vé, mà là xếp hạng mức độ cần kiểm tra để nhân viên vận hành ưu tiên xác minh.
+P| Trong đề tài, điểm nghi vấn có thể được xây dựng dựa trên các nhóm yếu tố: bằng chứng đi vào khu tham quan; có hoặc không có bằng chứng xuất hiện tại quầy vé; thời gian từ lối vào đến quầy vé; độ tin cậy của tracking; độ tin cậy của Re-ID; chất lượng ảnh crop; số lần xuất hiện trong hệ thống; tính hợp lý của hành trình theo topology camera; trạng thái nhóm nếu đi cùng đoàn.
+P| Một công thức scoring có thể được thiết kế theo dạng rule-based hoặc kết hợp trọng số. Do đây là bài toán ứng dụng và cần khả năng giải thích, cách tiếp cận rule-based hoặc hybrid scoring thường phù hợp hơn trong giai đoạn đầu so với mô hình hộp đen.
+P| 2.8.2. Cơ chế cảnh báo có khả năng giải thích
+P| Một cảnh báo có khả năng giải thích cần cho biết vì sao hệ thống đánh giá trường hợp đó là nghi vấn. Ví dụ, cảnh báo nên đi kèm các thông tin: người được ghi nhận đi vào lúc nào; xuất hiện ở camera nào; ảnh crop đại diện; tracklet có độ dài bao nhiêu; có tìm thấy match tại quầy vé hay không; đã chờ bao lâu từ khi đi vào; similarity Re-ID với các tracklet liên quan; sự kiện ROI nào đã hoặc chưa xảy ra; điểm nghi vấn được cộng từ những thành phần nào.
+P| Cách tiếp cận này không phải Explainable AI theo nghĩa hẹp như các kỹ thuật giải thích mô hình deep learning, mà là giải thích dựa trên luật nghiệp vụ và bằng chứng quan sát. Đối với hệ thống hỗ trợ vận hành, dạng giải thích này thực tế và dễ sử dụng hơn, vì nhân viên cần biết lý do cảnh báo để xác minh nhanh.
+P| 2.8.3. Human-in-the-loop
+P| Human-in-the-loop là nguyên tắc quan trọng trong các hệ thống AI giám sát. Do detection, tracking và Re-ID đều có khả năng sai số, hệ thống không nên tự động kết luận vi phạm hoặc đưa ra quyết định xử phạt. Thay vào đó, AI đóng vai trò lọc, xếp hạng và cung cấp bằng chứng; con người giữ vai trò xác minh cuối cùng.
+P| Trong đề tài, human-in-the-loop giúp giảm rủi ro từ các tình huống như: người đã mua vé nhưng không được camera quầy vé ghi nhận; người đi cùng đoàn và vé do người khác mua; camera mất kết nối hoặc có điểm mù; Re-ID liên kết nhầm người; người chỉ đi ngang qua vùng kiểm soát; người quay lại quầy vé sau thời gian dài hơn ngưỡng dự kiến.
+P| Việc thiết kế hệ thống theo hướng hỗ trợ quyết định giúp đề tài phù hợp hơn với yêu cầu thực tế và giảm rủi ro pháp lý.
+P| 2.9. Dataset và benchmark liên quan
+P| 2.9.1. Dataset cho multi-object tracking
+P| MOTChallenge là nhóm benchmark phổ biến cho bài toán multi-object tracking. Trong đó, MOT20 tập trung vào các cảnh đông người, phù hợp để kiểm tra tracking trong điều kiện mật độ cao (Dendorfer và cộng sự, 2020). Dataset này cung cấp video và annotation để đánh giá khả năng phát hiện, duy trì track ID và xử lý che khuất.
+P| Đối với đề tài, MOT20 có thể được sử dụng để đánh giá module tracking ở cấp kỹ thuật. Tuy nhiên, MOT20 không cung cấp thông tin nghiệp vụ về quầy vé hoặc hành vi mua vé. Vì vậy, nó chỉ phù hợp cho đánh giá thành phần tracking, không đủ để đánh giá toàn bộ pipeline phát hiện nghi vấn.
+P| 2.9.2. Dataset cho person Re-ID
+P| Market-1501 là một benchmark kinh điển trong person Re-ID, cung cấp ảnh người từ nhiều camera khác nhau trong môi trường giám sát (Zheng và cộng sự, 2015). MSMT17 là dataset Re-ID có độ đa dạng cao hơn về số lượng camera, điều kiện ánh sáng và bối cảnh (Wei và cộng sự, 2018). Dù hai dataset này được công bố trước 2020, chúng vẫn thường được sử dụng trong các nghiên cứu Re-ID vì tính phổ biến và khả năng so sánh kết quả.
+P| Trong đề tài, Market-1501 hoặc MSMT17 có thể dùng để đánh giá chất lượng embedding Re-ID thông qua các chỉ số như Rank-1 và mAP. Tuy nhiên, các dataset này không chứa chuỗi sự kiện mua vé hoặc không mua vé, nên không thể dùng trực tiếp để đánh giá cảnh báo nghiệp vụ.
+P| 2.9.3. Dataset cho multi-camera tracking
+P| Các benchmark multi-camera multi-person tracking như MMPTRACK cung cấp dữ liệu để đánh giá khả năng theo dõi nhiều người qua nhiều camera (Han và cộng sự, 2023). Đây là nhóm dataset có liên quan gần hơn đến đề tài vì bài toán yêu cầu liên kết người qua nhiều điểm quan sát.
+P| Tuy nhiên, ngay cả các dataset multi-camera tracking cũng chủ yếu tập trung vào việc duy trì ID qua các camera, chưa mô hình hóa rõ các trạng thái nghiệp vụ như “đã đi qua quầy vé”, “đã mua vé” hoặc “nghi vấn chưa mua vé”. Do đó, đề tài vẫn cần thiết kế kịch bản mô phỏng hoặc dữ liệu thử nghiệm riêng ở cấp sự kiện.
+P| 2.9.4. Tổng hợp dataset liên quan
+P| Bảng sau tóm tắt vai trò của các dataset/benchmark có thể sử dụng trong đề tài.
+P| Từ bảng trên có thể thấy, các dataset công khai hỗ trợ tốt việc đánh giá từng thành phần kỹ thuật, nhưng chưa đủ để đánh giá trực tiếp bài toán phát hiện nghi vấn chưa mua vé trong khu du lịch mở. Đây là lý do đề tài cần kết hợp public dataset với kịch bản mô phỏng nghiệp vụ.
+P| 2.10. Chỉ số đánh giá
+P| 2.10.1. Chỉ số đánh giá detection
+P| Đối với object detection, các chỉ số phổ biến gồm precision, recall, Average Precision và mean Average Precision. Precision phản ánh tỷ lệ detection đúng trong tổng số detection được mô hình đưa ra. Recall phản ánh tỷ lệ đối tượng thực tế được mô hình phát hiện. mAP thường được dùng để đánh giá tổng quát hiệu quả detection trên nhiều lớp hoặc nhiều ngưỡng IoU.
+P| Trong đề tài, lớp quan trọng nhất là person. Vì vậy, việc đánh giá detection có thể tập trung vào precision và recall của lớp người. Recall thấp tại lối vào hoặc quầy vé có thể gây bỏ sót sự kiện, trong khi precision thấp có thể tạo track giả và làm tăng nhiễu cho hệ thống.
+P| 2.10.2. Chỉ số đánh giá tracking
+P| Đối với multi-object tracking, các chỉ số thường dùng gồm MOTA, IDF1 và HOTA. MOTA phản ánh tổng hợp các lỗi như false positive, false negative và ID switch. IDF1 tập trung vào độ chính xác duy trì định danh. HOTA do Luiten và cộng sự (2021) đề xuất nhằm đánh giá tracking theo cách cân bằng hơn giữa detection, association và localization.
+P| Trong đề tài, IDF1 và HOTA có ý nghĩa quan trọng vì hệ thống cần duy trì hành trình của người, không chỉ phát hiện đúng từng frame. Nếu tracking thường xuyên đổi ID, hệ thống có thể chia nhỏ hành trình thành nhiều tracklet và làm khó bước liên kết đa camera.
+P| 2.10.3. Chỉ số đánh giá Re-ID
+P| Đối với person Re-ID, hai chỉ số phổ biến là Rank-1 accuracy và mean Average Precision. Rank-1 cho biết tỷ lệ query có kết quả đúng ở vị trí đầu tiên trong danh sách truy xuất. mAP đánh giá chất lượng xếp hạng trên toàn bộ gallery.
+P| Trong đề tài, Re-ID không nhất thiết chỉ được đánh giá ở cấp ảnh. Nếu sử dụng tracklet-level embedding, có thể đánh giá khả năng liên kết tracklet giữa các camera dựa trên độ chính xác matching, false match rate và missed match rate. Cách đánh giá này gần với pipeline thực tế hơn so với chỉ dùng ảnh đơn lẻ.
+P| 2.10.4. Chỉ số đánh giá nghiệp vụ
+P| Bên cạnh các chỉ số kỹ thuật, hệ thống cần được đánh giá ở cấp cảnh báo nghiệp vụ. Các chỉ số phù hợp gồm:
+P| Alert precision: tỷ lệ cảnh báo đúng trong tổng số cảnh báo.
+P| Alert recall: tỷ lệ trường hợp nghi vấn thực tế được phát hiện.
+P| False alert rate: tỷ lệ cảnh báo sai.
+P| Missed alert rate: tỷ lệ bỏ sót trường hợp cần cảnh báo.
+P| Alert latency: thời gian từ khi người đi vào đến khi cảnh báo được sinh.
+P| Evidence completeness: mức độ đầy đủ của bằng chứng đi kèm cảnh báo.
+P| Các chỉ số này phản ánh trực tiếp giá trị vận hành của hệ thống. Một hệ thống có tracking hoặc Re-ID tốt nhưng sinh quá nhiều cảnh báo sai có thể không phù hợp trong thực tế. Ngược lại, một hệ thống có độ chính xác kỹ thuật vừa phải nhưng biết xếp hạng rủi ro và cung cấp bằng chứng rõ ràng có thể hữu ích hơn cho nhân viên vận hành.
+P| 2.11. Các nghiên cứu liên quan và vị trí của đề tài
+P| 2.11.1. Nhóm nghiên cứu về object detection
+P| Các nghiên cứu về object detection như YOLO tập trung vào cải thiện kiến trúc detector, kỹ thuật huấn luyện và hiệu quả suy luận (Bochkovskiy và cộng sự, 2020; Wang và cộng sự, 2023; Wang và cộng sự, 2024). Những nghiên cứu này có giá trị nền tảng cho việc phát hiện người trong video.
+P| Tuy nhiên, object detection chỉ giải quyết câu hỏi “người ở đâu trong khung hình”, chưa giải quyết câu hỏi “người này đã đi qua quầy vé hay chưa”. Vì vậy, detector chỉ là module đầu vào trong pipeline của đề tài.
+P| 2.11.2. Nhóm nghiên cứu về multi-object tracking
+P| Các nghiên cứu như ByteTrack và BoT-SORT tập trung vào duy trì định danh trong video và cải thiện association giữa các frame (Zhang và cộng sự, 2022; Aharon và cộng sự, 2022). Các benchmark như MOT20 và metric như HOTA giúp đánh giá chất lượng tracking trong điều kiện đông người (Dendorfer và cộng sự, 2020; Luiten và cộng sự, 2021).
+P| Những nghiên cứu này liên quan trực tiếp đến đề tài vì tracking giúp tạo tracklet cho từng người trong mỗi camera. Tuy nhiên, tracking trong một camera chưa đủ để đối soát hành trình qua nhiều camera và chưa giải quyết logic quầy vé.
+P| 2.11.3. Nhóm nghiên cứu về person Re-ID
+P| Các nghiên cứu như FastReID và TransReID cung cấp nền tảng cho việc học embedding Re-ID và truy xuất người qua nhiều camera (Luo và cộng sự, 2020; He và cộng sự, 2021). Khảo sát của Ye và cộng sự (2021) cho thấy Re-ID là lĩnh vực phát triển mạnh nhưng vẫn chịu ảnh hưởng của domain gap, viewpoint variation và occlusion.
+P| Trong đề tài, Re-ID được sử dụng như một thành phần hỗ trợ liên kết người qua nhiều camera. Tuy nhiên, đề tài không phụ thuộc hoàn toàn vào Re-ID, mà kết hợp thêm ràng buộc không gian-thời gian và luật nghiệp vụ để giảm nguy cơ liên kết sai.
+P| 2.11.4. Nhóm nghiên cứu về multi-camera tracking
+P| Các benchmark như MMPTRACK tập trung vào theo dõi nhiều người qua nhiều camera trong bối cảnh đông người (Han và cộng sự, 2023). Đây là hướng nghiên cứu gần với bài toán của đề tài vì cần liên kết hành trình qua nhiều điểm quan sát.
+P| Tuy nhiên, bài toán của đề tài có thêm lớp nghiệp vụ đặc thù: xác định có hay không bằng chứng xuất hiện tại vùng quầy vé trong khoảng thời gian hợp lý. Vì vậy, đề tài không chỉ là multi-camera tracking, mà là multi-camera event reasoning for ticketing supervision trong bối cảnh khu du lịch mở.
+P| 2.11.5. Nhóm nghiên cứu về phát hiện hành vi trốn vé
+P| Huang và cộng sự (2022) nghiên cứu phát hiện trốn vé dựa trên video tại cổng metro, trong đó hành vi vượt cổng không thanh toán được nhận diện trực tiếp từ camera đặt tại điểm kiểm soát. Nhóm nghiên cứu này giải quyết nhiệm vụ phân loại hành vi tại một điểm cố định, sử dụng dữ liệu camera tại cổng và đánh giá bằng các chỉ số phân loại như precision và recall. Tuy nhiên, bài toán của đề tài khác ở chỗ khu du lịch mở không có cổng kiểm soát cứng: bằng chứng vé không thể quan sát tại một điểm duy nhất mà phải tổng hợp từ hành trình qua nhiều camera, đồng thời hệ thống phải xử lý trạng thái "chưa đủ bằng chứng" thay vì chỉ phân loại hành vi tại một điểm.
+P| 2.11.6. Nhóm nghiên cứu về phát hiện bất thường trong video
+P| Phát hiện bất thường trong video (video anomaly detection) là hướng liên quan vì hành vi trốn vé có thể được nhìn nhận như một dạng bất thường trong dòng người. Karim và cộng sự (2024) đề xuất phương pháp phát hiện bất thường thời gian thực với giám sát yếu (weakly supervised), giúp giảm yêu cầu gán nhãn chi tiết. Wu và cộng sự (2024) mở rộng bài toán sang phát hiện bất thường với từ vựng mở (open-vocabulary), cho phép mô tả các dạng bất thường bằng ngôn ngữ tự nhiên. Các công trình thuộc nhóm này thường được đánh giá trên dữ liệu video giám sát với các chỉ số phát hiện bất thường ở cấp đoạn video. Điểm còn thiếu so với đề tài là chúng không truy vết hành trình của một cá nhân cụ thể, không cung cấp bằng chứng giải thích theo từng người và vì vậy khó tích hợp trực tiếp vào quy trình kiểm soát vé có con người xác minh.
+P| 2.11.7. Nhóm nghiên cứu về theo dõi đa camera dựa trên đồ thị và xử lý độ bất định
+P| Trong multi-camera tracking, các phương pháp dựa trên đồ thị gần đây đã cho thấy lợi thế khi liên kết người qua nhiều camera. Cheng và cộng sự (2023) đề xuất ReST, một mô hình đồ thị không gian-thời gian có thể tái cấu hình cho multi-camera multi-object tracking. Woo và cộng sự (2024) giới thiệu MTMMC, một benchmark đa camera đa phương thức quy mô lớn trong môi trường thực tế. Fan và cộng sự (2025) nghiên cứu theo dõi đa mục tiêu đa camera trong điều kiện ánh sáng thay đổi trong cả ngày. Các công trình này được đánh giá bằng các chỉ số tracking như HOTA và IDF1 trên bộ dữ liệu có nhãn liên kết (Luiten và cộng sự, 2021).
+P| Tuy nhiên, các benchmark và phương pháp trên vẫn tập trung vào chất lượng duy trì định danh, chưa mô hình hóa tín hiệu nghiệp vụ vùng vé, chưa tích hợp độ tin cậy liên kết vào quyết định cảnh báo và chưa hỗ trợ trạng thái từ chối kết luận khi bằng chứng không đủ. Đây chính là khoảng trống mà đề tài hướng tới: mô hình hóa bằng chứng không gian-thời gian ở cấp tracklet, gán điểm tin cậy cho từng liên kết và trả về ba trạng thái đầu ra gồm có bằng chứng, thiếu bằng chứng và chưa đủ bằng chứng để kết luận.
+P| 2.11.8. Vị trí của đề tài so với nghiên cứu trước
+P| Từ các nhóm nghiên cứu trên, có thể thấy đề tài không cạnh tranh trực tiếp với các công trình đề xuất detector, tracker hoặc mô hình Re-ID mới. Thay vào đó, đề tài định vị ở hướng tích hợp ứng dụng. Đóng góp chính là thiết kế pipeline, lựa chọn mô hình phù hợp, kết hợp ràng buộc không gian-thời gian với ROI analytics, xây dựng scoring nghi vấn và đánh giá hệ thống ở cấp cảnh báo nghiệp vụ.
+P| Bảng dưới đây tóm tắt vị trí của đề tài so với các nhóm nghiên cứu liên quan.
+P| Như vậy, đề tài nằm ở giao điểm giữa computer vision và bài toán vận hành thực tế. Đây là hướng phù hợp với nghiên cứu ứng dụng, trong đó giá trị không chỉ nằm ở mô hình riêng lẻ mà ở khả năng kết hợp các thành phần thành một hệ thống có thể kiểm thử, giải thích và hỗ trợ ra quyết định.
+P| 2.12. Khoảng trống rút ra
+P| Từ phần lược khảo cơ sở lý thuyết và nghiên cứu trước, có thể rút ra một số khoảng trống liên quan trực tiếp đến đề tài.
+P| Thứ nhất, các nghiên cứu object detection, tracking và Re-ID đã phát triển mạnh, nhưng phần lớn tập trung vào việc cải thiện từng nhiệm vụ riêng lẻ. Trong khi đó, bài toán phát hiện nghi vấn chưa mua vé yêu cầu pipeline xuyên suốt từ video đến cảnh báo nghiệp vụ.
+P| Thứ hai, các dataset công khai hiện có như MOT20, Market-1501, MSMT17 và MMPTRACK hỗ trợ đánh giá từng thành phần kỹ thuật, nhưng chưa cung cấp nhãn đầy đủ cho chuỗi sự kiện “đi vào khu du lịch - xuất hiện hoặc không xuất hiện tại quầy vé - sinh cảnh báo nghi vấn”.
+P| Thứ ba, Re-ID có khả năng hỗ trợ liên kết người qua camera, nhưng không đủ tin cậy nếu sử dụng độc lập trong bối cảnh đông người, nhiều trang phục tương tự, che khuất và thay đổi góc nhìn. Vì vậy, cần kết hợp Re-ID với ràng buộc không gian-thời gian và topology camera.
+P| Thứ tư, nhiều chỉ số kỹ thuật như mAP, MOTA, IDF1, HOTA hoặc Rank-1 chưa phản ánh đầy đủ giá trị vận hành của hệ thống. Đối với bài toán của đề tài, cần bổ sung các chỉ số ở cấp cảnh báo như alert precision, false alert rate, missed alert rate và alert latency. Trong phạm vi thực nghiệm hiện tại, nghiên cứu tập trung báo cáo Precision, Recall, F1, MOTA, ID switches và các thống kê tracklet do phù hợp với pipeline đã triển khai.
+P| Thứ năm, các hệ thống camera AI trong không gian công cộng cần được thiết kế theo hướng bảo vệ dữ liệu cá nhân và có con người xác minh. Do đó, việc không sử dụng nhận diện khuôn mặt, không xác định danh tính thật, giới hạn lưu trữ dữ liệu và áp dụng human-in-the-loop là các nguyên tắc quan trọng.
+P| Những khoảng trống trên là cơ sở để Chương 3 đề xuất kiến trúc hệ thống và phương pháp nghiên cứu cụ thể cho bài toán phát hiện nghi vấn chưa mua vé trong khu du lịch mở.
+P| CHƯƠNG 3. PHƯƠNG PHÁP NGHIÊN CỨU
+P| 3.1. Tổng quan phương pháp nghiên cứu
+P| Chương 3 trình bày phương pháp nghiên cứu được sử dụng để xây dựng hệ thống phát hiện nghi vấn chưa mua vé tại khu du lịch mở bằng phân tích video đa camera. Do đề tài thuộc dạng Problem-solver, trọng tâm nghiên cứu không nằm ở việc đề xuất một kiến trúc deep learning hoàn toàn mới, mà nằm ở việc khảo sát, lựa chọn, tích hợp và đánh giá các mô hình/thuật toán phù hợp để giải quyết một bài toán thực tế.
+P| Bài toán đặt ra có đặc thù khác với các bài toán computer vision truyền thống. Hệ thống không chỉ cần phát hiện người trong từng khung hình, mà còn phải theo dõi người trong từng camera, liên kết người qua nhiều camera, kiểm tra sự xuất hiện tại khu vực quầy vé hoặc hàng chờ, sau đó sinh cảnh báo nghi vấn nếu không tìm thấy bằng chứng phù hợp trong một khoảng thời gian hợp lý.
+P| Vì vậy, phương pháp nghiên cứu của đề tài được xây dựng theo hướng pipeline ứng dụng, gồm các bước chính:
+P| Video/Image sequences
+P| → Video ingestion, frame indexing & time metadata synchronization
+P| → Person detection
+P| → Single-camera multi-object tracking
+P| → Tracklet generation, quality filtering & crop extraction
+P| → Re-ID feature extraction
+P| → Simulated multi-camera association
+P| → Global temporary ID management
+P| → Proxy ticket evidence generation
+P| → ROI / zone / event analytics
+P| → Journey state modeling
+P| → Suspicion scoring
+P| → Alert generation, visual evidence packaging & human verification
+P| → Evaluation and ablation analysis
+P| Trong pipeline này, mỗi mô-đun được lựa chọn dựa trên bốn tiêu chí:
+P| Phù hợp với bài toán thực tế: ưu tiên mô hình/thuật toán xử lý tốt người đi bộ, video giám sát và môi trường đông người.
+P| Gọn nhẹ và khả thi: có thể chạy trên Google Colab, Vast.ai hoặc GPU phổ thông, không yêu cầu huấn luyện từ đầu với chi phí lớn.
+P| Có mã nguồn và trọng số tiền huấn luyện: giúp tái lập kết quả, dễ chia sẻ source code bằng Python notebook.
+P| Có khả năng giải thích: output của hệ thống phải cung cấp được bằng chứng như ảnh crop, thời gian, camera nguồn, track ID, điểm nghi vấn và lý do sinh cảnh báo.
+P| Cách tiếp cận này phù hợp với luận văn thạc sĩ định hướng ứng dụng, trong đó đóng góp chính là thiết kế và hiện thực hóa một hệ thống có thể kiểm thử, thay vì tối ưu một mô hình riêng lẻ trên một benchmark.
+P| 3.2. Định hướng nghiên cứu Problem-solver
+P| 3.2.1. Bản chất của đề tài
+P| Đề tài được định vị là nghiên cứu giải quyết vấn đề thực tế. Vấn đề thực tế ở đây là: trong khu du lịch mở, khách có thể đi vào từ nhiều hướng, không nhất thiết đi qua một cổng kiểm soát cứng, nên việc xác định người nào đã đi vào nhưng chưa có bằng chứng xuất hiện tại quầy vé là khó nếu chỉ dựa vào quan sát thủ công hoặc đếm lượt người.
+P| Vì vậy, hệ thống được xây dựng không nhằm trả lời câu hỏi pháp lý:
+P| “Người này có trốn vé hay không?”
+P| Thay vào đó, hệ thống trả lời câu hỏi vận hành:
+P| “Người này có thuộc nhóm cần nhân viên kiểm tra thêm hay không, dựa trên bằng chứng quan sát từ camera?”
+P| Cách định vị này giúp đề tài tránh rủi ro kết luận vượt quá khả năng của mô hình computer vision. Các thành phần như detection, tracking và Re-ID đều có sai số, đặc biệt trong môi trường đông người, ánh sáng thay đổi, che khuất hoặc nhiều người mặc trang phục tương tự. Do đó, hệ thống chỉ sinh cảnh báo nghi vấn, không kết luận vi phạm tự động.
+P| 3.2.2. Lý do không so sánh nhiều mô hình
+P| Trong các nghiên cứu thiên về thuật toán, việc so sánh nhiều mô hình trên cùng benchmark là cần thiết. Tuy nhiên, đối với đề tài này, việc so sánh sâu nhiều detector, tracker hoặc Re-ID model sẽ làm tăng đáng kể chi phí thực nghiệm, thời gian huấn luyện và yêu cầu phần cứng, trong khi không trực tiếp phục vụ mục tiêu chính là xây dựng hệ thống hỗ trợ vận hành.
+P| Do đó, đề tài không đặt mục tiêu so sánh toàn diện giữa nhiều mô hình. Thay vào đó, đề tài thực hiện:
+P| Khảo sát các mô hình/thuật toán phổ biến cho từng task;
+P| Phân tích ưu điểm, hạn chế và trade-off;
+P| Lựa chọn một phương án chính phù hợp với tài nguyên và bài toán;
+P| Đánh giá pipeline được chọn ở cả cấp độ kỹ thuật và cấp độ nghiệp vụ.
+P| Cách tiếp cận này phù hợp với nghiên cứu ứng dụng vì giá trị của hệ thống không chỉ phụ thuộc vào accuracy của từng model, mà còn phụ thuộc vào khả năng kết hợp các mô-đun thành chuỗi xử lý có ý nghĩa vận hành.
+P| 3.2.3. Nguyên tắc lựa chọn kỹ thuật
+P| Các mô hình và thuật toán trong đề tài được lựa chọn dựa trên nguyên tắc “đủ tốt, đủ nhẹ, đủ giải thích và đủ dễ triển khai”. Cụ thể:
+P| Từ các tiêu chí này, pipeline chính của đề tài ưu tiên lựa chọn:
+P| YOLOv8n hoặc YOLOv7-tiny cho phát hiện người;
+P| ByteTrack cho tracking chính;
+P| OSNet hoặc FastReID lightweight baseline cho trích xuất đặc trưng Re-ID;
+P| cosine similarity + ràng buộc không gian-thời gian + Hungarian matching cho association;
+P| rule-based suspicion scoring cho tính điểm nghi vấn;
+P| human-in-the-loop cho xác minh cuối cùng.
+P| 3.3. Thiết kế tổng thể pipeline hệ thống
+P| 3.3.1. Kiến trúc tổng quát
+P| Hệ thống được thiết kế theo kiến trúc mô-đun. Mỗi mô-đun đảm nhiệm một chức năng riêng và có thể được kiểm thử độc lập. Cách thiết kế này giúp đề tài dễ hiện thực bằng Python notebook, dễ debug, dễ thay thế model và phù hợp với môi trường thực nghiệm.
+P| Pipeline tổng thể được mô tả như sau:
+P| Trong đó, các dữ liệu trung gian quan trọng gồm: bounding box của người; local track ID trong từng camera; tracklet; ảnh crop đại diện; Re-ID embedding; global temporary ID; sự kiện vào vùng ROI; trạng thái hành trình; điểm nghi vấn; cảnh báo cuối cùng.
+P| 3.3.2. Luồng dữ liệu chính
+P| Thực nghiệm sử dụng 7 sequence MOT17-FRCNN. Mỗi sequence được xem như một nguồn camera độc lập cho mục tiêu đánh giá detection-tracking. Do MOT17 không có camera quầy vé, nghiên cứu mô phỏng camera quầy vé bằng cách chọn khoảng 60% tracklet làm nhóm có bằng chứng vé và tạo embedding tương ứng với nhiễu Gaussian.
+P| Trong phạm vi luận văn, để thuận tiện cho thực nghiệm và chia sẻ kết quả, hệ thống ưu tiên xử lý video dạng file hoặc frame sequence trong notebook.
+P| Mỗi frame sau khi đọc vào sẽ được gắn thông tin: camera_id; frame_id; timestamp; fps; video_source; thông tin ROI tương ứng với camera.
+P| Sau bước detection và tracking, mỗi quan sát người có thể được lưu dưới dạng cấu trúc dữ liệu:
+P| {
+P|     "camera_id": "cam_entrance_01",
+P|     "frame_id": 1250,
+P|     "timestamp": "2026-05-16 09:15:20",
+P|     "local_track_id": 17,
+P|     "bbox": [x1, y1, x2, y2],
+P|     "confidence": 0.87,
+P|     "crop_path": "crops/cam_entrance_01/track_17/frame_1250.jpg"
+P| }
+P| Sau khi association đa camera, hệ thống bổ sung thêm:
+P| {
+P|     "global_id": "GID_00042",
+P|     "journey_state": "entered_no_ticket_evidence",
+P|     "suspicion_score": 0.78,
+P|     "alert_status": "pending_human_review"
+P| }
+P| Cách tổ chức dữ liệu này giúp quá trình thực nghiệm minh bạch và dễ truy vết.
+P| 3.5. Lựa chọn mô hình phát hiện người
+P| 3.5.1. Các lựa chọn phổ biến cho detection
+P| Trong bài toán phát hiện người, các nhóm mô hình phổ biến gồm Faster R-CNN, SSD, EfficientDet, YOLO và các detector dựa trên Transformer như DETR. Mỗi nhóm có ưu điểm và hạn chế riêng.
+P| .
+P| 3.5.2. Lựa chọn chính: YOLOv8n
+P| Về mặt trích dẫn học thuật, nền tảng YOLO có thể được trình bày thông qua các công trình YOLOv4, YOLOv7 và YOLOv9. Trong khi đó, YOLOv8 được xem là công cụ triển khai thực tế phổ biến, có API thuận tiện, dễ dùng trong notebook và hỗ trợ xuất kết quả nhanh.
+P| Lý do chọn YOLOv8n: có pre-trained weights trên COCO, trong đó có lớp person; tốc độ suy luận nhanh; dễ cài đặt bằng Python; dễ tích hợp với ByteTrack/BoT-SORT; phù hợp với GPU phổ thông; có thể chạy thử trên Google Colab; không cần train từ đầu.
+P| Với bài toán này, detector chỉ cần tập trung vào lớp người. Vì vậy, có thể lọc output của YOLO để giữ lại class person, giảm nhiễu cho tracker.
+P| 3.5.3. Trade-off của lựa chọn YOLO
+P| Việc chọn YOLO mang lại lợi thế về tốc độ và tính triển khai, nhưng cũng có trade-off.
+P| Ưu điểm: nhanh, phù hợp video; nhiều mã nguồn và cộng đồng hỗ trợ; dễ dùng với notebook; có phiên bản nhẹ; output đơn giản gồm bbox, confidence và class.
+P| Hạn chế: có thể bỏ sót người bị che khuất mạnh; bounding box có thể kém ổn định với người ở xa; hiệu quả phụ thuộc vào góc camera và chất lượng video; pre-trained trên COCO có thể chưa tối ưu cho camera du lịch cụ thể.
+P| Trong phạm vi luận văn, trade-off này chấp nhận được vì mục tiêu không phải đạt detection tốt nhất tuyệt đối, mà là xây dựng pipeline khả thi. Nếu có dữ liệu thực tế nhỏ, đề tài có thể fine-tune nhẹ detector trên một số frame được gán nhãn để cải thiện khả năng phát hiện người trong bối cảnh Hội An.
+P| 3.6. Lựa chọn thuật toán tracking
+P| 3.6.1. Các lựa chọn phổ biến cho tracking
+P| Các tracker phổ biến trong video giám sát gồm SORT, DeepSORT, ByteTrack, OC-SORT và BoT-SORT. Mỗi thuật toán có mức độ phức tạp và yêu cầu dữ liệu khác nhau.
+P| Với tiêu chí gọn nhẹ và dễ triển khai, ByteTrack được chọn làm tracker chính. BoT-SORT được xem là lựa chọn thay thế nếu cần cải thiện độ ổn định ID trong camera.
+P| 3.6.2. Lựa chọn chính: ByteTrack
+P| ByteTrack được chọn vì phù hợp với pipeline theo hướng tracking-by-detection. Thuật toán này tận dụng cả detection có độ tin cậy thấp trong quá trình association, giúp giảm khả năng mất track khi detector không ổn định. Đây là đặc điểm hữu ích trong môi trường khu du lịch, nơi người có thể bị che khuất một phần hoặc xuất hiện trong điều kiện ánh sáng không đồng đều.
+P| Lý do chọn ByteTrack: tốc độ nhanh; dễ tích hợp với YOLO; không yêu cầu Re-ID feature trong tracking nội camera; phù hợp với GPU/CPU phổ thông; có mã nguồn phổ biến; hiệu quả tốt trong nhiều bài toán người đi bộ.
+P| Trong đề tài, ByteTrack tạo ra local track ID trong từng camera. Các local track ID này sau đó được gom thành tracklet và đưa sang bước Re-ID để liên kết đa camera.
+P| 3.6.3. Vì sao không chọn DeepSORT làm chính
+P| DeepSORT là một tracker phổ biến và dễ hiểu, kết hợp Kalman Filter, Hungarian matching và đặc trưng ngoại hình. Tuy nhiên, DeepSORT được công bố trước 2020 và có thể kém cạnh tranh hơn các tracker gần đây trong một số benchmark. Ngoài ra, việc tích hợp Re-ID ngay trong tracking nội camera có thể làm tăng chi phí tính toán, trong khi đề tài đã có bước Re-ID riêng cho multi-camera association.
+P| Vì vậy, DeepSORT có thể được trình bày như một phương pháp nền tảng trong Chương 2, nhưng không nhất thiết được chọn làm tracker chính. ByteTrack phù hợp hơn với tiêu chí hiện đại, gọn nhẹ và dễ tích hợp.
+P| 3.6.4. Khi nào dùng BoT-SORT
+P| BoT-SORT có thể được sử dụng nếu thực nghiệm cho thấy ByteTrack tạo nhiều ID switch trong các cảnh đông người hoặc khi camera có chuyển động/rung nhẹ. BoT-SORT bổ sung Re-ID và camera motion compensation, do đó có thể duy trì ID ổn định hơn trong một số tình huống.
+P| Tuy nhiên, BoT-SORT cũng có chi phí tính toán cao hơn. Vì vậy, trong phạm vi luận văn, đề tài có thể chọn:
+P| ByteTrack là tracker chính;
+P| BoT-SORT là phương án thay thế hoặc cải tiến, không bắt buộc so sánh toàn diện.
+P| Cách trình bày này giúp đề tài vừa có tính thực tế, vừa không mở rộng phạm vi thực nghiệm quá mức.
+P| 3.7. Sinh tracklet và chọn ảnh crop đại diện
+P| 3.7.1. Khái niệm tracklet
+P| Tracklet là chuỗi các detection được liên kết với cùng một local track ID trong một camera. Mỗi tracklet biểu diễn một đoạn hành trình của một người trong phạm vi camera đó. Tracklet là đơn vị trung gian quan trọng vì Re-ID và multi-camera association nên hoạt động trên tracklet thay vì từng frame riêng lẻ.
+P| 3.7.2. Lọc tracklet chất lượng thấp
+P| Không phải mọi tracklet đều nên được đưa vào Re-ID. Các tracklet quá ngắn hoặc chất lượng thấp có thể tạo embedding kém và gây liên kết sai. Vì vậy, đề tài áp dụng bước lọc tracklet dựa trên một số tiêu chí: số frame tối thiểu; thời lượng xuất hiện tối thiểu; confidence trung bình của detection; kích thước bounding box tối thiểu; tỷ lệ box bị che khuất hoặc quá nhỏ; độ ổn định của track.
+P| Ngưỡng cụ thể sẽ được điều chỉnh trong thực nghiệm tùy theo FPS và độ phân giải video.
+P| 3.7.3. Chọn crop đại diện
+P| Đối với mỗi tracklet, hệ thống cần chọn một hoặc nhiều ảnh crop đại diện để trích xuất embedding Re-ID. Việc chọn crop đại diện giúp giảm chi phí tính toán và tăng chất lượng embedding.
+P| Các tiêu chí chọn crop đại diện gồm:
+P| detection confidence cao;
+P| bounding box đủ lớn;
+P| người ít bị che khuất;
+P| crop không quá mờ;
+P| tỷ lệ khung hình gần với thân người;
+P| vị trí người nằm trong vùng nhìn rõ;
+P| frame cách nhau đủ xa để tránh trùng lặp.
+P| Một chiến lược đơn giản và hiệu quả là chọn top-K crop có điểm chất lượng cao nhất. Điểm chất lượng có thể được tính từ confidence, kích thước bbox và độ sắc nét ảnh.
+P| Trong phạm vi đề án, công thức này có thể được thiết kế rule-based để dễ giải thích và dễ triển khai.
+P| 3.8. Lựa chọn mô hình Re-ID
+P| 3.8.1. Các lựa chọn phổ biến cho Re-ID
+P| Các mô hình Re-ID có thể chia thành một số nhóm:
+P| Với tiêu chí gọn nhẹ, đề tài chọn OSNet hoặc FastReID lightweight baseline làm hướng chính.
+P| 3.8.2. Lựa chọn chính: OSNet hoặc FastReID lightweight baseline
+P| OSNet là mô hình Re-ID được sử dụng rộng rãi trong thực hành vì cân bằng tương đối tốt giữa kích thước mô hình và chất lượng embedding. Dù OSNet được công bố trước 2020, việc sử dụng nó trong đề tài vẫn hợp lý vì đây là mô hình nhẹ, có pre-trained weights và được tích hợp trong nhiều thư viện Re-ID như Torchreid.
+P| FastReID không phải là một model đơn lẻ, mà là framework hỗ trợ nhiều baseline Re-ID. Nếu sử dụng FastReID, đề tài có thể chọn backbone nhẹ để phù hợp tài nguyên.
+P| Lý do chọn OSNet/FastReID lightweight: có trọng số pre-trained; dễ trích xuất embedding từ crop người; chạy được trên GPU phổ thông; phù hợp với notebook; đủ tốt cho thử nghiệm association; không yêu cầu train từ đầu.
+P| TransReID là công trình quan trọng trong Re-ID hiện đại, nhưng mô hình Transformer thường nặng hơn CNN lightweight. Trong bối cảnh luận văn cần chạy trên Colab/Vast.ai, ưu tiên tính khả thi và tốc độ xử lý, TransReID có thể làm tăng chi phí thực nghiệm.
+P| Vì vậy, TransReID được sử dụng như tài liệu tham khảo cho xu hướng Re-ID hiện đại, nhưng không phải lựa chọn chính trong pipeline. Đây là trade-off hợp lý giữa hiệu quả học thuật và khả năng triển khai.
+P| 3.8.3. Trích xuất embedding ở cấp tracklet
+P| Thay vì dùng một ảnh crop duy nhất, đề tài trích xuất embedding từ nhiều crop đại diện của mỗi tracklet, sau đó tổng hợp thành embedding tracklet. Cách này giúp giảm ảnh hưởng của frame xấu.
+P| Một cách tổng hợp đơn giản:
+P| embedding_tracklet = average(embedding_crop_1, embedding_crop_2, ..., embedding_crop_k)
+P| Sau đó chuẩn hóa vector:
+P| embedding = L2_normalize(embedding_tracklet)
+P| Cách làm này gọn nhẹ, dễ triển khai và phù hợp với mục tiêu luận văn.
+P| 3.9. Liên kết đa camera
+P| 3.9.1. Mục tiêu association
+P| Mục tiêu của association là xác định các tracklet ở nhiều camera có khả năng thuộc cùng một người. Ví dụ, tracklet cam_entrance_01_track_12 tại lối vào có thể được liên kết với cam_ticket_01_track_08 tại khu vực quầy vé nếu embedding tương đồng và thời gian di chuyển hợp lý.
+P| Association được thực hiện ở cấp tracklet, không phải cấp frame, để giảm chi phí tính toán và tăng độ ổn định.
+P| 3.9.2. Cosine similarity
+P| Độ tương đồng giữa hai embedding được tính bằng cosine similarity:
+P| ​
+P| Trong đó, a và b là embedding của hai tracklet. Giá trị similarity càng cao thì khả năng hai tracklet thuộc cùng một người càng lớn.
+P| Tuy nhiên, similarity ngoại hình không đủ để quyết định association. Vì vậy, đề tài kết hợp thêm ràng buộc không gian-thời gian.
+P| 3.9.3. Ràng buộc không gian-thời gian
+P| Với mỗi cặp camera, hệ thống định nghĩa khoảng thời gian di chuyển hợp lý:
+P| camera_topology = {
+P|     ("cam_entrance_01", "cam_ticket_01"): {
+P|         "min_time": 30,
+P|         "max_time": 600
+P|     }
+P| }
+P| Một cặp tracklet chỉ được xem xét nếu:
+P| Trong đó:
+P| tendA  là thời điểm kết thúc tracklet ở camera A; 
+P| tstartB là thời điểm bắt đầu tracklet ở camera B;
+P| TminA,B và TmaxA,B là thời gian di chuyển tối thiểu và tối đa giữa hai camera.
+P| Nếu điều kiện thời gian không hợp lý, cặp tracklet bị loại hoặc bị giảm điểm mạnh.
+P| 3.9.4. Điểm association tổng hợp
+P| Điểm association giữa hai tracklet có thể được tính bằng công thức rule-based:
+P| Trong đó:
+P| Sreid(i,j) là cosine similarity giữa hai embedding;
+P| Stime(i,j) là điểm hợp lý về thời gian di chuyển;
+P| Squality(i,j) là điểm chất lượng tracklet/crop;
+P| wreid, wtime, wquality là trọng số.
+P| Các trọng số có thể được thiết lập thủ công trong giai đoạn đầu, ví dụ:
+P| w_reid = 0.6
+P| w_time = 0.3
+P| w_quality = 0.1
+P| Cách tiếp cận này có ưu điểm là dễ giải thích. Nếu một association được chấp nhận, hệ thống có thể giải thích rằng cặp tracklet có similarity cao, thời gian di chuyển hợp lý và chất lượng crop đủ tốt.
+P| 3.9.5. Hungarian matching
+P| Sau khi tính điểm association cho các cặp tracklet ứng viên, hệ thống có thể sử dụng Hungarian algorithm để tìm matching tối ưu một-một giữa tracklet ở camera trước và camera sau. Thuật toán này phù hợp khi cần tránh việc một tracklet bị gán cho nhiều người khác nhau.
+P| Quy trình association:
+P| Lọc ứng viên bằng camera topology và time window.
+P| Tính cosine similarity giữa embedding tracklet.
+P| Tính điểm association tổng hợp.
+P| Loại cặp có điểm dưới ngưỡng.
+P| Dùng Hungarian matching để chọn cặp tốt nhất.
+P| Gán hoặc cập nhật global temporary ID.
+P| 3.10. Quản lý định danh tạm thời toàn cục
+P| 3.10.1. Global temporary ID
+P| Global temporary ID là định danh tạm thời được gán cho một người trong phạm vi hệ thống. Khác với danh tính thật, global ID chỉ có ý nghĩa trong quá trình đối soát hành trình từ camera này sang camera khác.
+P| Ví dụ:
+P| GID_00031:
+P|     cam_entrance_01_track_12
+P|     cam_mid_02_track_07
+P|     cam_ticket_01_track_18
+P| Global ID giúp hệ thống gom các tracklet rời rạc thành một hành trình có cấu trúc.
+P| 3.10.2. Cập nhật global ID
+P| Khi một tracklet mới xuất hiện, hệ thống kiểm tra xem nó có thể liên kết với global ID hiện có hay không. Nếu có, tracklet được thêm vào hành trình. Nếu không, hệ thống tạo global ID mới.
+P| Mỗi global ID lưu các thông tin: danh sách tracklet; embedding đại diện; thời điểm xuất hiện đầu tiên; thời điểm xuất hiện gần nhất; camera đã đi qua; sự kiện ROI đã ghi nhận; trạng thái hành trình; điểm nghi vấn.
+P| Embedding đại diện của global ID có thể được cập nhật bằng trung bình có trọng số.
+P| 3.11. Phân tích ROI và sự kiện nghiệp vụ
+P| 3.11.1. Định nghĩa ROI
+P| Mỗi camera có thể được cấu hình các vùng quan tâm. Trong đề tài, các ROI quan trọng gồm:
+P| vùng lối vào; đường ảo xác định hướng đi vào; vùng quầy vé; vùng hàng chờ; vùng giao dịch; vùng thoát khỏi camera.
+P| ROI được lưu trong file cấu hình để dễ chỉnh sửa mà không cần thay đổi code.
+P| Ví dụ:
+P| {
+P|   "cam_ticket_01": {
+P|     "ticket_counter_zone": [[300, 200], [700, 200], [750, 600], [250, 600]],
+P|     "queue_zone": [[100, 250], [280, 250], [280, 650], [100, 650]]
+P|   }
+P| }
+P| 3.11.2. Xác định sự kiện line crossing
+P| Line crossing được dùng để xác định người đi vào khu tham quan. Hệ thống kiểm tra vị trí điểm đại diện của bounding box qua thời gian, thường dùng điểm đáy giữa của bounding box:
+P| foot_point = ((x1 + x2) / 2, y2)
+P| Nếu foot point cắt qua đường ảo theo hướng đi vào, hệ thống ghi nhận sự kiện:
+P| event = "entered_area"
+P| 3.11.3. Xác định sự kiện xuất hiện tại quầy vé
+P| Một người được xem là có bằng chứng xuất hiện tại quầy vé nếu global ID hoặc tracklet tương ứng đi vào ROI quầy vé/hàng chờ và thỏa điều kiện dwell time tối thiểu.
+P| Ví dụ:
+P| if time_inside_ticket_roi >= dwell_threshold:
+P|     event = "ticket_counter_evidence"
+P| Dwell threshold có thể được thiết lập tùy bối cảnh, ví dụ 5–15 giây cho vùng hàng chờ hoặc quầy vé. Ngưỡng này không chứng minh người đã mua vé, mà chỉ cung cấp bằng chứng rằng người đó đã xuất hiện ở khu vực liên quan đến mua vé.
+P| 3.11.4. Đối soát với log giao dịch nếu có
+P| Nếu có log giao dịch bán vé, hệ thống có thể sử dụng như bằng chứng bổ sung ở cấp thời gian và khu vực, không nhất thiết liên kết trực tiếp với danh tính cá nhân.
+P| Ví dụ, nếu một nhóm người xuất hiện tại quầy vé trong khoảng thời gian có giao dịch nhiều vé, hệ thống có thể giảm điểm nghi vấn cho các global ID thuộc nhóm đó. Tuy nhiên, vì log giao dịch không trực tiếp xác định người nào trong video đã mua vé, nó chỉ nên được dùng như tín hiệu bổ trợ.
+P| 3.12. Quản lý trạng thái hành trình
+P| Mỗi Global Temporary ID được quản lý bằng một trạng thái hành trình nhằm mô tả tiến trình của đối tượng trong pipeline nghiệp vụ mô phỏng. Các trạng thái gồm: observed, entered_area, waiting_for_ticket_evidence, ticket_evidence_found, uncertain_insufficient_evidence, suspected_no_ticket_evidence, alert_generated, pending_review và verified_by_human. Trong đó, ticket_evidence_found trong nghiên cứu hiện tại chỉ biểu diễn ticket evidence mô phỏng/proxy, không phải giao dịch vé thật; uncertain_insufficient_evidence là trạng thái từ chối kết luận khi độ tin cậy liên kết Re-ID dưới ngưỡng 0,60 (mục 3.13.4); verified_by_human là trạng thái dành cho triển khai thực tế khi có phản hồi xác minh của nhân viên.
+P| Một hành trình có thể đi theo luồng hợp lệ:
+P| observed → entered_area → waiting_for_ticket_evidence → ticket_evidence_found.
+P| Ngược lại, nếu quá time window nhưng không có ticket evidence phù hợp, hệ thống có thể chuyển theo luồng:
+P| observed → entered_area → waiting_for_ticket_evidence → suspected_no_ticket_evidence → alert_generated → pending_review.
+P| Cơ chế trạng thái giúp hệ thống không chỉ dựa vào ID tracking mà còn có khả năng giải thích vì sao một Global ID được đưa vào danh sách cảnh báo. Mỗi chuyển trạng thái cần gắn với điều kiện rõ ràng như đi qua ROI, hết time window, không có ticket evidence mô phỏng hoặc suspicion score vượt ngưỡng.
+P| 3.13. Tính điểm nghi vấn
+P| 3.13.1. Mục tiêu scoring
+P| Suspicion scoring được dùng để xếp hạng các Global Temporary ID theo mức độ cần ưu tiên kiểm tra. Điểm nghi vấn không phải là xác suất vi phạm pháp lý hoặc kết luận một người chưa mua vé, mà là điểm ưu tiên vận hành phục vụ danh sách human review.
+P| Một Global ID có điểm nghi vấn cao khi có nhiều tín hiệu đồng thời, gồm: đã đi vào khu tham quan, không có ticket evidence mô phỏng/proxy, vượt quá thời gian di chuyển hợp lý, tracklet đủ chất lượng, Re-ID association đủ tin cậy và không có sự kiện giải thích hợp lý khác. Nhờ đó, hệ thống chỉ đóng vai trò hỗ trợ lọc và ưu tiên trường hợp cần xác minh, còn quyết định cuối cùng thuộc về nhân viên vận hành.
+P| 3.13.2. Công thức scoring đề xuất
+P| Điểm nghi vấn có thể được tính theo dạng rule-based weighted score:
+P| Ví dụ trọng số ban đầu:
+P| w1 = 0.25
+P| w2 = 0.30
+P| w3 = 0.20
+P| w4 = 0.10
+P| w5 = 0.15
+P| Nếu:
+P| S_sus >= 0.7
+P| hệ thống sinh cảnh báo mức cao. Nếu điểm nằm trong khoảng trung bình, hệ thống có thể đưa vào danh sách theo dõi. Lưu ý đây là cơ chế scoring đề xuất trong phạm vi thực nghiệm.
+P| 3.13.3. Lý do chọn rule-based scoring
+P| Rule-based scoring được lựa chọn vì bài toán hiện chưa có bộ dữ liệu lớn, chuẩn hóa và có nhãn đáng tin cậy về trạng thái mua vé thực tế. MOT17 chỉ cung cấp nhãn tracking người, không có thông tin giao dịch vé, camera quầy vé hoặc nhãn người có vé/không có vé. Do đó, việc huấn luyện một mô hình học máy giám sát cho bài toán nghiệp vụ là chưa phù hợp trong phạm vi nghiên cứu này.
+P| Cách tiếp cận rule-based có ưu điểm là minh bạch, dễ giải thích cho nhân viên vận hành và dễ điều chỉnh theo layout camera, quy trình bán vé hoặc yêu cầu thực tế. Mỗi cảnh báo có thể được giải thích bằng các lý do cụ thể như thiếu ticket evidence mô phỏng, vượt ngưỡng thời gian hoặc tracklet đủ chất lượng. Đồng thời, hệ thống vẫn giữ mô hình human-in-the-loop, tức là chỉ đề xuất trường hợp cần kiểm tra chứ không tự động kết luận vi phạm.
+P| Trong tương lai, khi có dữ liệu thực tế và phản hồi xác minh, hệ thống có thể chuyển sang mô hình hybrid, kết hợp luật nghiệp vụ với học máy để học trọng số scoring hoặc huấn luyện mô hình phân loại rủi ro. Tuy nhiên, ở giai đoạn hiện tại, rule-based scoring là lựa chọn hợp lý vì đảm bảo tính giải thích được, khả năng kiểm soát và phù hợp với điều kiện dữ liệu còn hạn chế.
+P| 3.13.4. Hợp nhất bằng chứng và xử lý độ bất định
+P| Hệ thống hợp nhất bằng chứng theo cách tiếp cận gần với mô hình đồ thị: mỗi tracklet được xem là một nút; một cạnh liên kết giữa hai tracklet chỉ được xét đến khi cặp camera tương ứng thỏa mãn cửa sổ thời gian di chuyển hợp lý [T_min, T_max] theo topology camera. Điểm bằng chứng của một cạnh được tổng hợp từ độ tương đồng ngoại hình S_reid, độ hợp lý về thời gian S_time và chất lượng quan sát S_quality (mục 3.9.4). Tín hiệu vùng vé (sự kiện ROI tại quầy vé, hàng chờ) được gắn vào global ID như một nguồn bằng chứng độc lập với ngoại hình.
+P| Ký hiệu hình thức của mô hình hợp nhất bằng chứng như sau: đồ thị bằng chứng G = (V, E), trong đó mỗi nút Ti thuộc V là một tracklet hợp lệ, tức chuỗi quan sát liên tục của một người trong một camera; cạnh e(i,j) = (Ti, Tj) thuộc E là một liên kết ứng viên giữa hai tracklet được quan sát ở hai camera khác nhau. Cạnh e(i,j) chỉ được xét khi thỏa mãn cửa sổ thời gian di chuyển theo topology camera: Tmin(A,B) ≤ Δtij ≤ Tmax(A,B), với Δtij = tstart,j - tend,i là khoảng thời gian giữa thời điểm kết thúc của tracklet Ti và thời điểm bắt đầu của tracklet Tj (ký hiệu thời gian theo mục 3.9.3). Mỗi cạnh được gán điểm bằng chứng Sedge(i,j) = wreid × Sreid(i,j) + wtime × Stime(i,j) + wquality × Squality(i,j), lấy giá trị trong [0, 1], tổng hợp từ độ tương đồng ngoại hình, độ hợp lý về thời gian và chất lượng quan sát theo mục 3.9.4. Sau khi các cạnh hợp lệ được hợp nhất thành global ID g và tín hiệu vùng vé được gắn vào g, điểm nghi vấn Ssus(g) được tính theo công thức trọng số ở mục 3.13.2; xử lý độ bất định khi độ tin cậy liên kết thấp được trình bày ngay sau đây.
+P| Trên nền hợp nhất bằng chứng, cơ chế xử lý độ bất định hoạt động như sau: nếu độ tin cậy liên kết Re-ID dưới 0,60, hệ thống gán trạng thái uncertain_insufficient_evidence (chưa đủ bằng chứng kết luận), nhân điểm nghi vấn với hệ số reid_confidence/0,60 và buộc mức cảnh báo về low. Nhờ đó, hệ thống có ba trạng thái đầu ra: có bằng chứng vé (ticket_evidence_found), thiếu bằng chứng vé (suspected_no_ticket_evidence) và chưa đủ bằng chứng để kết luận (uncertain_insufficient_evidence). Trong thực nghiệm MOT17 hiện tại, mọi liên kết được ghép đều có độ tương đồng từ 0,616 trở lên nên trạng thái từ chối kết luận không kích hoạt trên luồng chính; vai trò của cơ chế này được minh họa qua phân tích loại bỏ nguồn thông tin ở mục 4.6.3.
+P| 3.14. Sinh cảnh báo và human-in-the-loop
+P| 3.14.1. Nội dung cảnh báo
+P| Mỗi cảnh báo được thiết kế như một bản ghi hỗ trợ xác minh, bao gồm Global Temporary ID, thời điểm và camera ghi nhận, ảnh crop/frame bằng chứng, lịch sử sự kiện, trạng thái hành trình, ticket evidence mô phỏng, điểm nghi vấn, mức cảnh báo, lý do sinh cảnh báo và trạng thái human review. Trong nghiên cứu này, cảnh báo không được xem là kết luận vi phạm mà chỉ là tín hiệu nghi vấn cần nhân viên kiểm tra.
+P| 3.14.2. Quy trình xác minh của con người
+P| Nhân viên vận hành xem danh sách cảnh báo, kiểm tra crop đại diện, frame liên quan, lịch sử xuất hiện và lý do sinh cảnh báo. Sau đó, nhân viên có thể gán nhãn xác minh như cảnh báo đúng, cảnh báo sai, không đủ bằng chứng, đã mua vé theo nhóm, có vé online, lỗi camera, lỗi tracking hoặc lỗi association. Phản hồi này được lưu lại để phân tích lỗi, điều chỉnh ngưỡng và cải thiện hệ thống trong các vòng thực nghiệm tiếp theo. Trong phạm vi nghiên cứu hiện tại, human review chủ yếu được triển khai ở mức tạo danh sách cảnh báo và trạng thái pending review; các nhãn xác minh chi tiết là định hướng cho triển khai thực tế.
+P| 3.15. Thiết kế thực nghiệm
+P| 3.15.1. Môi trường triển khai
+P| Đề tài được hiện thực bằng Python 3.10/3.11 và tổ chức dưới dạng Jupyter/IPython Notebook để thuận tiện cho việc chạy thử, kiểm tra từng module và tái lập kết quả. Các thực nghiệm được thực hiện trên môi trường có GPU như Google Colab hoặc Vast.ai. Pipeline sử dụng PyTorch làm nền tảng học sâu, Ultralytics YOLOv8 cho phát hiện người, ByteTrack cho theo vết đa đối tượng, Torchreid với OSNet-x1-0 cho trích xuất đặc trưng Re-ID, OpenCV/Pillow cho xử lý ảnh, NumPy/Pandas cho quản lý dữ liệu, SciPy cho Hungarian matching và Matplotlib/Seaborn cho trực quan hóa.
+P| Cách triển khai bằng notebook giúp chia nhỏ quy trình thành các bước rõ ràng như detection, tracking, tracklet extraction, Re-ID embedding, multi-camera association, ROI/event analysis, suspicion scoring, alert generation và evaluation. Mỗi bước tạo ra các file trung gian có cấu trúc, giúp người đánh giá có thể kiểm tra, chạy lại và truy vết kết quả của toàn bộ pipeline.
+P| 3.15.2. Thiết lập thực nghiệm theo module
+P| Đề tài này tổ chức thực nghiệm theo ba cấp độ. Ở cấp độ Detection-Tracking, hệ thống được đánh giá trên 7 sequence MOT17-FRCNN bằng YOLOv8n và ByteTrack, với các chỉ số gồm số detection, số local track, confidence trung bình, Precision, Recall, F1, MOTA, ID switches và tỷ lệ tracklet hợp lệ. Cấp độ này kiểm tra chất lượng đầu vào cho toàn bộ pipeline.
+P| Ở cấp độ Re-ID/Association, các tracklet hợp lệ được trích xuất crop đại diện và đưa qua OSNet-x1-0 để tạo embedding 512 chiều. Do MOT17 không cung cấp ground truth Re-ID đa camera cho bài toán vé, nghiên cứu không đánh giá Rank-1/mAP mà tập trung vào phân bố similarity score, số association được ghép thành công, mean/median Re-ID score và phân tích độ nhạy theo ngưỡng matching.
+P| Ở cấp độ Pipeline nghiệp vụ mô phỏng, hệ thống đánh giá luồng xử lý end-to-end từ Global Temporary ID đến ticket evidence mô phỏng, sự kiện ROI, trạng thái hành trình, suspicion score, alert và human review. Các chỉ số gồm số Global ID, tỷ lệ có/không có ticket evidence mô phỏng, phân bố journey state, phân bố alert level và số evidence record. Do dữ liệu vé là mô phỏng, kết quả ở cấp độ này được dùng để đánh giá tính khả thi kỹ thuật của pipeline, không phải kết luận hành vi mua vé thật.
+P| Các ngưỡng trong nghiên cứu này (min_frames, ngưỡng similarity 0,55, ngưỡng cảnh báo 0,70/0,50, thời gian di chuyển tối đa 600 giây) được cố định trước theo thiết kế và không được tinh chỉnh sau khi xem kết quả; phân tích độ nhạy tham số và ablation ở Chương 4 dùng để xác nhận vùng hoạt động ổn định của các ngưỡng này. Khi có dữ liệu pilot, các ngưỡng sẽ được lựa chọn trên tập validation tách biệt và tập kiểm thử được khóa trước khi đánh giá.
+P| 3.15.3. Chỉ số đánh giá
+P| Nghiên cứu sử dụng hai nhóm chỉ số đánh giá: nhóm chỉ số kỹ thuật và nhóm chỉ số nghiệp vụ mô phỏng. Do bộ dữ liệu MOT17 không chứa nhãn vé thật, camera quầy vé thật hoặc ground truth giao dịch, các chỉ số nghiệp vụ trong nghiên cứu được hiểu là chỉ số đánh giá trên kịch bản mô phỏng/proxy, không phải đo lường trực tiếp hiệu quả kiểm soát vé ngoài thực tế.
+P| Nhóm chỉ số kỹ thuật
+P| Nhóm chỉ số nghiệp vụ mô phỏng
+P| 3.15.4. Kế hoạch thí nghiệm kiểm chứng trên dữ liệu thực
+P| Để chuyển từ nghiên cứu khả thi sang nghiên cứu có đối chứng, đề tài dự kiến thực hiện sáu thí nghiệm trên dữ liệu pilot theo bảng dưới đây.
+P| Khi báo cáo kết quả kiểm chứng, các chỉ số tracking gồm HOTA, DetA, AssA, IDF1 và ID switches; các chỉ số Re-ID gồm mAP và Rank-1; kết quả chính ở cấp sự kiện gồm PR-AUC, precision, recall, F1, số cảnh báo sai mỗi giờ, số sự kiện bị bỏ sót và thời gian từ khi người đi vào đến khi có cảnh báo. Mỗi kết quả chính cần kèm khoảng tin cậy 95% tính bằng cluster bootstrap theo ngày, camera hoặc phiên ghi hình; không xem các frame là quan sát độc lập khi làm kiểm định thống kê.
+P| 3.16. Tóm tắt lựa chọn kỹ thuật của đề tài
+P| Bảng sau tổng hợp lựa chọn kỹ thuật chính trong pipeline.
+P| Bảng này thể hiện rõ định hướng của đề tài ưu tiên khả thi, minh bạch và phù hợp ứng dụng, thay vì tối ưu tuyệt đối trên benchmark.
+P| CHƯƠNG 4. KẾT QUẢ NGHIÊN CỨU VÀ THẢO LUẬN
+P| 4.1. Tổng quan thực nghiệm
+P| Chương này trình bày kết quả thực nghiệm của hệ thống phân tích video đa camera nhằm phát hiện các trường hợp nghi ngờ không có bằng chứng vé trong bối cảnh khu du lịch mở. Hệ thống được thiết kế theo hướng hỗ trợ con người ra quyết định, tức là chỉ tạo cảnh báo nghi ngờ kèm bằng chứng trực quan, không tự động kết luận vi phạm.
+P| Do chưa có bộ dữ liệu công khai chuyên biệt cho bài toán kiểm soát vé trong khu du lịch mở, nghiên cứu sử dụng bộ dữ liệu MOT17 làm nền tảng đánh giá các thành phần thị giác máy tính, bao gồm phát hiện người, theo vết, trích xuất đặc trưng Re-ID và gán định danh toàn cục. Trên cơ sở đó, bài toán nghiệp vụ vé được mô phỏng thông qua cấu hình vùng quan tâm, trạng thái hành trình và hàm chấm điểm nghi ngờ.
+P| Cách tiếp cận này cho phép đánh giá hai khía cạnh chính:
+P| Khía cạnh kỹ thuật: khả năng xử lý video, phát hiện người, theo vết, tạo tracklet, trích xuất embedding và gán định danh.
+P| Khía cạnh nghiệp vụ mô phỏng: khả năng chuyển đổi kết quả thị giác máy tính thành sự kiện, trạng thái hành trình, điểm nghi ngờ và cảnh báo hỗ trợ kiểm tra thủ công.
+P| Toàn bộ pipeline được triển khai qua 11 notebook chính, từ tiền xử lý dữ liệu, phát hiện - theo vết, trích xuất đặc trưng, liên kết đa camera, đến đánh giá, trực quan hóa và phân tích ablation.
+P| 4.2. Thiết lập thực nghiệm
+P| 4.2.1. Bộ dữ liệu sử dụng
+P| Thực nghiệm được tiến hành trên 7 chuỗi huấn luyện của bộ dữ liệu MOT17, phiên bản FRCNN:
+P| Các sequence có sự đa dạng đáng kể về mật độ người, thời lượng, điều kiện quan sát và mức độ che khuất. Trong đó, MOT17-04 là cảnh đông nhất với trung bình 17,2 đối tượng/frame, trong khi MOT17-13 có mật độ thấp hơn với khoảng 4,0 đối tượng/frame.
+P| Sự đa dạng này giúp kiểm tra pipeline trong nhiều tình huống khác nhau, từ cảnh thưa, dễ theo vết đến cảnh đông, dễ xảy ra che khuất và nhầm định danh.
+P| 4.2.2. Cấu hình pipeline
+P| Các thông số chính được sử dụng trong thực nghiệm như sau:
+P| Hệ thống sử dụng YOLOv8n nhằm cân bằng giữa tốc độ và độ chính xác. ByteTrack được dùng để duy trì track ID cục bộ trong từng camera/sequence. Sau đó, OSNet-x1-0 tạo embedding Re-ID cho các crop đại diện của từng tracklet. Các embedding này được sử dụng để mô phỏng liên kết đa camera và gán định danh toàn cục.
+P| 4.2.3. Mô phỏng kiến trúc đa camera
+P| MOT17 là bộ dữ liệu một camera cho từng sequence, không chứa camera quầy vé hoặc thông tin mua vé thực tế. Vì vậy, nghiên cứu thiết kế một mô phỏng đa camera gồm:
+P| Camera lối vào: cam_entrance_01
+P| Camera quầy vé: cam_ticket_01
+P| Trong mô phỏng, các sequence MOT17 được dùng làm nguồn dữ liệu camera lối vào. Camera quầy vé được tạo bằng cách mô phỏng một tỷ lệ tracklet có bằng chứng vé. Cụ thể, khoảng 60% tracklet được gán là có xuất hiện tại camera quầy vé, sau đó embedding được thêm nhiễu Gaussian với nhiều mức độ khó khác nhau.
+P| Cách mô phỏng này nhằm tái tạo một số thách thức thực tế của bài toán Re-ID đa camera, ví dụ: khác góc nhìn, che khuất một phần, chất lượng crop không đồng đều, sai lệch đặc trưng do điều kiện quan sát.
+P| Tuy nhiên, cần nhấn mạnh rằng ticket evidence trong nghiên cứu này là bằng chứng mô phỏng, không phải thông tin vé thật từ MOT17.
+P| 4.3. Kết quả theo từng giai đoạn của pipeline
+P| 4.3.1. Giai đoạn 1–2: Thiết lập dữ liệu và đồng bộ frame
+P| Hai giai đoạn đầu bao gồm thiết lập thư mục, kiểm tra cấu hình và tạo chỉ mục frame. Pipeline đã xử lý thành công 7 sequence MOT17 với tổng cộng 5.293 frame.
+P| Kết quả chính:
+P| Việc tạo frame_index.csv là nền tảng cho toàn bộ các bước sau, vì mỗi frame được gắn với camera_id, frame_id, timestamp và đường dẫn ảnh. Kết quả này cho thấy module nhập liệu có khả năng xử lý dữ liệu dạng chuỗi ảnh, phù hợp với các hệ thống camera thực tế vốn thường lưu video dưới dạng frame hoặc stream đã tách ảnh.
+
+P| Ở cấp độ ứng dụng, khả năng chuẩn hóa dữ liệu đầu vào là rất quan trọng. Trong bối cảnh khu du lịch mở, hệ thống có thể phải tích hợp nhiều nguồn camera khác nhau. Việc thiết kế một frame index thống nhất giúp các module phía sau không phụ thuộc trực tiếp vào định dạng nguồn dữ liệu ban đầu.
+P| 4.3.2. Giai đoạn 3: Phát hiện và theo vết người
+P| Ở giai đoạn này, YOLOv8n được sử dụng để phát hiện người, sau đó ByteTrack duy trì ID cục bộ theo thời gian. Pipeline tạo ra 45.445 dòng detection-track với tổng cộng 704 local track ID trên 7 sequence.
+P| Kết quả cho thấy confidence trung bình dao động từ 0,624 đến 0,795. MOT17-11 và MOT17-05 có confidence cao nhất, lần lượt đạt 0,795 và 0,779. Đây là các sequence có điều kiện quan sát tương đối thuận lợi hơn. Ngược lại, MOT17-13 và MOT17-04 có confidence thấp hơn, phản ánh ảnh hưởng của góc nhìn, mật độ người và che khuất.
+P| MOT17-04 tạo ra số detection lớn nhất, với 18.022 detection, phù hợp với đặc điểm đây là sequence đông người nhất. Tuy nhiên, confidence trung bình của sequence này chỉ đạt 0,635, cho thấy trong môi trường đông đúc, detector gặp nhiều khó khăn hơn do chồng lấn và che khuất.
+
+P| Kết quả này cho thấy detector YOLOv8n đủ khả năng tạo đầu vào cho các bước downstream, nhưng vẫn có sự đánh đổi giữa tốc độ và độ chính xác. Trong ứng dụng thực tế, nếu hệ thống được triển khai tại khu vực đông người như phố cổ, cổng vào điểm du lịch hoặc bến thuyền, việc dùng model mạnh hơn như YOLOv8s, YOLOv8m hoặc detector được fine-tune theo dữ liệu địa phương có thể cải thiện recall.
+P| 4.3.3. Đánh giá phát hiện so với ground truth MOT17
+P| Notebook đánh giá đã so sánh bbox dự đoán với ground truth MOT17 bằng ngưỡng IoU = 0,5. Một số kết quả được ghi nhận như sau:
+P| Các kết quả này cho thấy precision tương đối cao, trong khoảng 0,836-0,925, nghĩa là phần lớn các detection được tạo ra là đúng người, ít false positive. Tuy nhiên, recall thấp hơn đáng kể, đặc biệt ở MOT17-02 với recall chỉ 0,203. Điều này cho thấy hệ thống có xu hướng bỏ sót một số người hơn là phát hiện nhầm nhiều đối tượng.
+P| Bổ sung cho các chỉ số trên, chỉ số IDF1 trung bình đạt 0,428 (dao động 0,242-0,594 theo sequence), phản ánh khả năng duy trì định danh ở cấp quan sát còn hạn chế, đặc biệt ở các cảnh khó như MOT17-02 và MOT17-13. Vì hệ thống dựa trên chuỗi định danh để đối soát hành trình qua nhiều camera, IDF1 là chỉ số cần cải thiện song song với recall khi chuyển sang dữ liệu thực.
+P| Hiện tượng này có thể xuất phát từ một số nguyên nhân:
+P| YOLOv8n là model nhẹ, ưu tiên tốc độ.
+P| Ngưỡng confidence 0,35 có thể vẫn còn cao với các đối tượng nhỏ hoặc bị che khuất.
+P| Một số người trong MOT17 có kích thước bbox nhỏ, mờ hoặc nằm xa camera.
+P| MOT17 ground truth có thể bao gồm nhiều đối tượng khó phát hiện trong đám đông.
+
+P| Đối với bài toán cảnh báo nghi ngờ không có vé, recall là yếu tố rất quan trọng. Recall thấp cho thấy hệ thống còn bỏ sót đáng kể các đối tượng nhỏ, xa hoặc bị che khuất. Điều này ảnh hưởng trực tiếp đến khả năng tạo tracklet và phát hiện hành trình đầy đủ. Vì vậy, kết quả hiện tại nên được hiểu là minh chứng tính khả thi của pipeline hơn là hiệu năng tối ưu cho triển khai thực tế.
+P| Nếu detector bỏ sót người ở đầu pipeline, các bước Re-ID, scoring và alert phía sau sẽ không thể phục hồi. Do đó, trong triển khai thực tế, cần ưu tiên cải thiện recall bằng cách: giảm ngưỡng confidence một cách có kiểm soát, dùng detector mạnh hơn, fine-tune trên dữ liệu camera thực tế, kết hợp vùng quan tâm để lọc false positive thay vì loại bỏ detection quá sớm.
+P| Tuy vậy, precision cao là một tín hiệu tích cực, vì nó giúp giảm số lượng cảnh báo sai phát sinh từ detection nhầm.
+P| 4.3.4. Giai đoạn 4: Tạo tracklet và trích xuất crop đại diện
+P| Từ 704 raw tracks, bộ lọc chất lượng tạo ra 364 valid tracklets, tương ứng tỷ lệ hợp lệ 51,7%. Mỗi tracklet hợp lệ được chọn tối đa 5 crop đại diện dựa trên các tiêu chí như confidence, diện tích bbox và độ sắc nét. Bước lọc tracklet đóng vai trò kiểm soát chất lượng đầu vào cho Re-ID. Việc giữ lại 364/704 tracklet cho thấy bộ lọc loại bỏ các track ngắn hoặc kém ổn định, đồng thời vẫn duy trì đủ số lượng mẫu cho association.
+P| Kết quả cho thấy bộ lọc tracklet đã loại bỏ gần một nửa các track ngắn, thiếu ổn định hoặc có chất lượng bbox thấp. Đây là bước cần thiết trước khi trích xuất Re-ID embedding, vì embedding từ crop kém chất lượng có thể gây nhầm lẫn khi liên kết đa camera.
+P| MOT17-04 có tỷ lệ tracklet hợp lệ cao nhất, đạt 67,2%, đồng thời có median duration dài nhất, 3,05 giây. Điều này cho thấy dù sequence này đông người, nhiều đối tượng vẫn được duy trì đủ lâu trong khung hình để tạo tracklet có ý nghĩa. Ngược lại, MOT17-10 và MOT17-13 có valid ratio thấp hơn, lần lượt 39,3% và 43,4%, có thể do đối tượng xuất hiện ngắn, bị che khuất hoặc có chuyển động ra/vào khung hình nhanh.
+
+P| Bước lọc tracklet đóng vai trò cân bằng giữa số lượng và chất lượng dữ liệu. Nếu điều kiện lọc quá lỏng, hệ thống sẽ đưa nhiều crop nhiễu vào Re-ID, làm tăng nguy cơ liên kết sai. Nếu điều kiện lọc quá chặt, hệ thống có thể bỏ mất các đối tượng xuất hiện ngắn nhưng quan trọng. Cấu hình min_frames=10, min_duration=1.0s, min_bbox_height=40px cho kết quả hợp lý trong thực nghiệm, khi giữ lại khoảng một nửa tracklet có chất lượng tốt hơn.
+P| 4.3.5. Giai đoạn 5: Trích xuất đặc trưng Re-ID
+P| Ở giai đoạn Re-ID, mô hình OSNet-x1-0 được sử dụng để trích xuất embedding 512 chiều cho các crop đại diện. Kết quả tạo ra:
+P| Mỗi tracklet được biểu diễn bằng embedding trung bình đã L2-normalize, giúp giảm nhiễu từ từng crop riêng lẻ. Việc sử dụng embedding trung bình là phù hợp vì mỗi tracklet có nhiều crop ở các frame khác nhau, cho phép biểu diễn ổn định hơn so với chỉ dùng một ảnh duy nhất.
+P| OSNet-x1-0 là mô hình được thiết kế chuyên biệt cho bài toán person Re-ID, có khả năng học đặc trưng ở nhiều thang không gian khác nhau. Việc mô hình này hoạt động ổn định trên MOT17 cho thấy khả năng chuyển giao tương đối tốt từ các bộ dữ liệu Re-ID phổ biến như Market-1501 hoặc MSMT17 sang dữ liệu pedestrian tracking.
+
+P| Trong bối cảnh thực tế, Re-ID là module then chốt nếu hệ thống cần liên kết cùng một người giữa nhiều camera. Tuy nhiên, Re-ID vẫn có thể sai khi người mặc trang phục tương tự, bị che khuất hoặc camera có góc nhìn quá khác nhau. Vì vậy, trong pipeline này, Re-ID không được dùng đơn độc mà được kết hợp thêm yếu tố thời gian và chất lượng crop trong bước association.
+P| 4.3.6. Giai đoạn 6: Liên kết đa camera và gán global ID
+P| Giai đoạn liên kết đa camera tạo ra 218 association và 364 global ID. Trong đó, có 219 ID có ticket evidence, chiếm 60,2%, và 145 ID không có ticket evidence, chiếm 39,8%. Lưu ý rằng do không có ground truth Re-ID đa camera trong dữ liệu MOT17 cho bài toán vé, nghiên cứu không kết luận các association là đúng tuyệt đối. Số lượng 218 biểu thị các cặp được hệ thống ghép thành công theo thiết lập mô phỏng, ngưỡng similarity và ràng buộc thời gian đã định nghĩa.
+P| Kết quả cho thấy các cặp được liên kết có độ tương đồng Re-ID khá cao, với mean similarity 0,858 và median 0,909. Giá trị nhỏ nhất 0,616 vẫn cao hơn ngưỡng matching 0,55, cho thấy các association được giữ lại đều vượt qua tiêu chí tương đồng tối thiểu.
+P| Phân bố độ khó của association cho thấy: khoảng 73% association thuộc nhóm dễ, với Re-ID score ≥ 0,80; khoảng 27% thuộc nhóm trung bình, với Re-ID score từ 0,55 đến 0,80.
+P| Điều này phản ánh mô phỏng đã tạo được các trường hợp có độ khó khác nhau, thay vì chỉ tạo các cặp quá dễ. Nhóm medium có ý nghĩa quan trọng vì nó gần hơn với tình huống thực tế, nơi người có thể bị che khuất, crop không đầy đủ hoặc điều kiện ánh sáng khác nhau giữa camera.
+
+P| Tỷ lệ ticket evidence 60,2% không nên được hiểu là kết quả phát hiện khách đã mua vé trong dữ liệu MOT17. Đây là tham số mô phỏng được thiết kế trong notebook NB06, với khoảng 60% tracklet được giả định xuất hiện ở camera quầy vé. Tuy nhiên, kết quả association vẫn có ý nghĩa về mặt kỹ thuật: nó cho thấy pipeline có khả năng tạo embedding, thêm nhiễu mô phỏng đa camera, tính tương đồng và gán global ID bằng Hungarian matching.
+P| Trong hệ thống triển khai thực tế, bước này cần được thay thế hoặc hiệu chỉnh bằng dữ liệu đa camera thật. Khi đó, ticket evidence có thể đến từ camera quầy vé, cổng soát vé, log giao dịch hoặc xác nhận thủ công.
+P| 4.3.7. Giai đoạn 7: Sinh sự kiện ROI, trạng thái hành trình và điểm nghi ngờ
+P| Giai đoạn NB07 tạo ra 583 event trên 364 global ID. Trạng thái hành trình được phân bố như sau:
+P| Kết quả này khớp với tỷ lệ mô phỏng ticket evidence ở NB06. Các global ID có ticket evidence được gán trạng thái ticket_evidence_found, trong khi các ID không có bằng chứng vé được gán suspected_no_ticket_evidence.
+P| Phân bố điểm nghi ngờ như sau:
+P| Phân bố suspicion score có dạng hai cụm rõ rệt:
+P| Cụm điểm thấp/trung bình, khoảng 0,43–0,68: thường là các cá nhân có ticket evidence.
+P| Cụm điểm cao, gần 0,96: thường là các cá nhân không có ticket evidence và đồng thời vượt ngưỡng thời gian/hành trình.
+P| Điều này cho thấy hàm scoring phân biệt rõ giữa hai nhóm hành trình. Các trọng số như no_ticket, time_exceeded, entered_area và các ngưỡng alert/watch đã tạo ra một phân bố có khả năng tách nhóm.
+
+P| Kết quả scoring thể hiện đúng mục tiêu thiết kế: hệ thống không chỉ dựa trên một tín hiệu duy nhất, mà kết hợp nhiều yếu tố hành vi. Tuy nhiên, do ticket evidence trong MOT17 là mô phỏng, điểm nghi ngờ ở đây nên được hiểu là điểm nghi ngờ theo rule, không phải xác suất thực tế người đó chưa mua vé.
+P| Điểm mạnh của module này là khả năng giải thích. Mỗi alert có thể đi kèm reason, ví dụ: đã đi vào khu vực quan tâm, không có bằng chứng từ camera vé, vượt thời gian di chuyển tối đa, thuộc nhóm cần human review.
+P| Trong ứng dụng thực tế, khả năng giải thích này rất quan trọng vì nhân viên vận hành cần biết tại sao hệ thống tạo cảnh báo, thay vì chỉ nhận một điểm số khó hiểu.
+P| 4.3.8. Giai đoạn 8: Cảnh báo và bằng chứng trực quan
+P| Giai đoạn NB08 tạo các cảnh báo và đưa những trường hợp có rủi ro cao vào quy trình human review. Theo kết quả tổng hợp, hệ thống tạo:
+P| Cụ thể bảng thống kê cảnh báo (alert) của thực nghiệm như sau:
+P| Điều này cho thấy tất cả các trường hợp suspected_no_ticket_evidence đều được đưa vào nhóm cần xem xét thủ công. Đây là thiết kế phù hợp với mục tiêu nghiên cứu: hệ thống đóng vai trò lọc và ưu tiên kiểm tra, không thay thế quyết định của con người.
+P| Các bằng chứng được lưu trong outputs/evidence/, bao gồm crop đại diện và chỉ mục evidence. Việc gắn mỗi cảnh báo với bằng chứng trực quan giúp người vận hành có thể kiểm tra lại: người được cảnh báo là ai, hình ảnh/crop đại diện có đủ rõ không, tracklet có ổn định không, lý do cảnh báo có hợp lý không. Cũng cần lưu ý rằng các mức cảnh báo trong bảng trên chỉ phản ánh mức ưu tiên kiểm tra do rule-based scoring tạo ra trong kịch bản mô phỏng. Chúng không đại diện cho tỷ lệ vi phạm thực tế tại khu du lịch.
+
+P| Trong thực tế, một hệ thống kiểm soát vé tự động nếu chỉ đưa ra nhãn “không mua vé” sẽ tiềm ẩn rủi ro đạo đức và pháp lý. Thiết kế của nghiên cứu này thận trọng hơn: hệ thống chỉ tạo cảnh báo nghi ngờ và yêu cầu xác minh bởi con người. Đây là hướng triển khai phù hợp hơn trong bối cảnh du lịch, nơi trải nghiệm của du khách, quyền riêng tư và tính công bằng cần được đặt lên hàng đầu.
+P| 4.4. Kết quả đánh giá tổng hợp
+P| Từ các output được tải trong NB09 và NB10, pipeline đạt được các con số tổng hợp sau:
+P| Các kết quả này cho thấy pipeline đã chạy thành công end-to-end trên toàn bộ 7 sequence MOT17-FRCNN. Quan trọng hơn, dữ liệu được truyền nhất quán qua nhiều tầng xử lý:
+P| frame → detection/tracking → tracklet/crop → Re-ID embedding → global ID → event → journey state → suspicion score → alert/evidence
+P| Đây là bằng chứng cho thấy kiến trúc pipeline có tính hoàn chỉnh và khả năng mở rộng. Mỗi module tạo ra output có cấu trúc rõ ràng, phục vụ cho bước tiếp theo và đồng thời có thể được kiểm tra độc lập.
+P| Cần lưu ý cách đọc các số liệu tổng hợp: bảng trên chỉ chứa các số lượng thuộc Nhóm B (kết quả mô phỏng nghiệp vụ), trong đó các mốc 219 bằng chứng vé và 145 cảnh báo là hệ quả của tham số mô phỏng khoảng 60% ticket evidence. Các chỉ số Precision, Recall, F1, MOTA và IDF1 ở mục 4.3.3 thuộc Nhóm A (đo trên ground truth MOT17). Hai nhóm kết quả này không được gộp chung trong một bảng để tránh hiểu nhầm rằng toàn bộ kết quả đều đã được kiểm chứng bằng nhãn thật.
+P| 4.5. Trực quan hóa và phân tích định tính
+P| Notebook NB09 tạo các biểu đồ và hình ảnh trực quan hóa nhằm đánh giá định tính chất lượng pipeline. Các biểu đồ gồm: số detection theo sequence, số local track theo sequence, số valid tracklet theo sequence, confidence trung bình theo sequence, hình ảnh sample frame với bbox và track ID.
+P| Các trực quan này hỗ trợ đánh giá nhanh sự khác biệt giữa các sequence. Ví dụ, MOT17-04 có số detection cao nhất do mật độ người lớn, trong khi MOT17-13 có số detection thấp hơn. Việc hiển thị bbox và track ID trên frame mẫu giúp kiểm tra trực quan xem tracker có bám đúng người hay không, có xảy ra nhầm ID hoặc bỏ sót nghiêm trọng hay không.
+
+P| Đánh giá định tính là cần thiết trong các bài toán video analytics, vì các metric định lượng không phải lúc nào cũng phản ánh đầy đủ lỗi trực quan. Ví dụ, một ID switch có thể không ảnh hưởng nhiều đến precision/recall của detection, nhưng lại ảnh hưởng mạnh đến hành trình của một người và có thể làm sai cảnh báo. Vì vậy, kết hợp giữa bảng số liệu và visualization là lựa chọn phù hợp.
+P| Đối với bộ bằng chứng định tính phục vụ human review, việc tuyển chọn hình minh họa cần bao gồm đồng thời bốn nhóm trường hợp: cảnh báo đúng, cảnh báo sai, trường hợp bỏ sót và trường hợp hệ thống từ chối kết luận. Việc hoàn thành bộ hình này phụ thuộc nhãn xác minh của nhân viên trên dữ liệu pilot theo lộ trình validation ở mục 3.15.4.
+P| 4.6. Phân tích ablation
+P| Notebook NB11 thực hiện phân tích ablation để đánh giá ảnh hưởng của các hyperparameter đến kết quả pipeline. Hai nhóm tham số quan trọng được xem xét gồm: ngưỡng lọc tracklet, đặc biệt là min_frames; ngưỡng similarity trong Re-ID association.
+P| Trong đó, phân tích ở mục 4.6.1 và 4.6.2 mang tính phân tích độ nhạy tham số (sensitivity analysis). Theo khuyến nghị về phương pháp nghiên cứu, nghiên cứu bổ sung loại ablation đúng nghĩa: loại bỏ lần lượt từng nguồn thông tin (ngoại hình Re-ID, ràng buộc thời gian, tín hiệu vùng vé) và đo phần thay đổi của kết quả.
+P| 4.6.1. Ảnh hưởng của min_frames
+P| Ablation với các giá trị: 3, 5, 8, 10, 15, 20, 30 cho thấy khi tăng min_frames, số lượng tracklet hợp lệ giảm, nhưng chất lượng trung bình có xu hướng tăng. Điều này phản ánh trade-off kinh điển trong tracking:
+P| Ngưỡng thấp giữ được nhiều tracklet hơn nhưng có thể chứa nhiều track nhiễu;
+P| Ngưỡng cao tạo tracklet ổn định hơn nhưng có nguy cơ loại bỏ các đối tượng xuất hiện ngắn.
+P| Giá trị hiện tại min_frames=10 là lựa chọn cân bằng. Nó loại bỏ các track quá ngắn nhưng vẫn giữ lại 364 valid tracklets, đủ cho các bước Re-ID và association.
+P| 4.6.2. Ảnh hưởng của Re-ID similarity threshold
+P| Ngưỡng association hiện tại là 0,55. Với kết quả matched Re-ID score có mean 0,858 và min 0,616, ngưỡng 0,55 cho phép giữ lại cả các trường hợp medium difficulty mà không quá lỏng.
+P| Nếu tăng ngưỡng quá cao, ví dụ trên 0,8, hệ thống sẽ ưu tiên precision nhưng bỏ mất nhiều association khó. Nếu giảm ngưỡng quá thấp, hệ thống có nguy cơ gán nhầm người có ngoại hình tương tự.
+P| Do đó, threshold 0,55 trong mô phỏng hiện tại là lựa chọn hợp lý để kiểm tra cả hai nhóm dễ và trung bình.
+
+P| Ablation giúp chứng minh rằng các tham số trong pipeline không được chọn tùy ý. Chúng phản ánh sự cân bằng giữa số lượng dữ liệu giữ lại, chất lượng embedding và độ tin cậy của association. Trong triển khai thực tế, các tham số này cần được hiệu chỉnh lại trên dữ liệu camera thật.
+P| 4.6.3. Loại bỏ từng nguồn thông tin (feature ablation)
+P| Feature ablation được thực hiện trên năm cấu hình: full (đầy đủ Re-ID, thời gian và vùng vé), no_reid (bỏ đặc trưng ngoại hình), no_time (bỏ ràng buộc thời gian), no_ticket_zone (bỏ tín hiệu vùng vé, thay bằng nhãn ngẫu nhiên 50%) và threshold_only (baseline thuần ngưỡng, chỉ dùng tín hiệu vắng mặt tại vùng vé mà không có scoring). Kết quả như sau:
+P| Kết quả cho thấy: (i) baseline thuần ngưỡng cảnh báo tất cả 145 trường hợp không có bằng chứng vé mà không phân biệt chất lượng liên kết; (ii) khi bỏ tín hiệu vùng vé, số cảnh báo cao giảm còn 43 và phân bố cảnh báo mất tính nhất quán, xác nhận vùng vé là nguồn phân biệt chính; (iii) khi bỏ ràng buộc thời gian, không còn cảnh báo nào được sinh ra, cho thấy thời gian di chuyển là điều kiện kích hoạt chính của cơ chế scoring; (iv) khi bỏ Re-ID, hệ thống trở nên tương đương baseline thuần ngưỡng với 145 cảnh báo cao.
+P| Đáng chú ý, ở cấu hình đầy đủ (full), các trường hợp không có bằng chứng vé đồng thời không có liên kết Re-ID tin cậy, do đó hệ thống không đủ chuỗi bằng chứng để nâng lên mức cảnh báo cao. Hiện tượng này minh họa cơ chế xử lý độ bất định gắn với RQ2: khi chuỗi định danh không chắc chắn, hệ thống ưu tiên không cảnh báo thay vì cảnh báo sai, qua đó giảm khối lượng kiểm tra thủ công.
+P| Cần nhấn mạnh rằng feature ablation này chạy trên dữ liệu mô phỏng từ MOT17, do đó chỉ phản ánh đóng góp tương đối của từng nguồn thông tin trong kịch bản mô phỏng; kết luận định lượng cần được xác nhận lại trên dữ liệu đa camera có nhãn theo kế hoạch kiểm chứng ở mục 3.15.4.
+P| 4.7. Thảo luận về giá trị ứng dụng thực tiễn
+P| Kết quả nghiên cứu cho thấy pipeline có tiềm năng ứng dụng trong các khu du lịch mở, nơi việc kiểm soát vé thủ công gặp nhiều khó khăn do: nhiều lối vào/ra, lượng khách đông, không gian mở, khó bố trí cổng kiểm soát cứng, nhân sự giám sát hạn chế.
+P| Hệ thống có thể hỗ trợ bằng cách:
+P| Tự động phát hiện và theo vết người trong video
+Pipeline có thể xử lý nhiều sequence, tạo track ID và crop đại diện cho từng người.
+P| Liên kết hành trình giữa các vùng/camera
+Re-ID và global ID cho phép mô hình hóa hành trình thay vì chỉ quan sát từng frame độc lập.
+P| Phát hiện thiếu bằng chứng vé theo logic nghiệp vụ
+Hệ thống không chỉ phát hiện người, mà còn kiểm tra người đó có bằng chứng từ khu vực vé hay không.
+P| Tạo cảnh báo có giải thích
+Mỗi cảnh báo đi kèm suspicion score, alert level, reason và evidence crop.
+P| Hỗ trợ human-in-the-loop
+Các trường hợp nghi ngờ được chuyển cho nhân viên kiểm tra, giúp giảm tải nhưng vẫn giữ quyền quyết định cuối cùng cho con người.
+P| Về mặt triển khai, hệ thống có thể được dùng như một lớp phân tích hỗ trợ vận hành, không phải công cụ xử phạt tự động. Đây là điểm quan trọng để đảm bảo tính khả thi và phù hợp trong môi trường du lịch.
+P| Bên cạnh giá trị ứng dụng, cần chỉ ra những tình huống mà chỉ riêng camera không thể tự giải quyết; đây đồng thời là cơ sở để thiết kế quy trình xác minh của con người. Các tình huống đó gồm: vé của cả nhóm do một người mua; người khác mua hộ vé; mua vé online hoặc mua trước nhưng không đi qua vùng phủ camera; vùng quan sát bị gián đoạn do điểm mù hoặc mất tín hiệu; hai tracklet không thể ghép chắc chắn do ngoại hình tương đồng hoặc chất lượng ảnh kém.
+P| Với các trường hợp này, cảnh báo của hệ thống chỉ nên được xem là tín hiệu cần kiểm tra, và trạng thái "chưa đủ bằng chứng" cần được nhân viên vận hành xử lý theo quy trình riêng thay vì bị thống kê là cảnh báo sai. Nhận định này không chỉ là hạn chế kỹ thuật mà còn định hình ranh giới trách nhiệm giữa hệ thống tự động và con người trong quy trình vận hành thực tế.
+P| CHƯƠNG 4B. BỔ SUNG THỰC NGHIỆM: TỐI ƯU HÓA ĐA PHIÊN BẢN, ĐÁNH GIÁ TOÀN DIỆN
+P| (Toàn bộ nội dung chương này được tô màu VÀNG — bổ sung tháng 11/2026 nhằm trả lời câu hỏi của giảng viên phản biện: “Kết quả hiện tại là 88% (precision phát hiện), có thể optimize/upgrade để kết quả tốt hơn nữa hay không?”. Quy trình: giữ nguyên không đổi notebook/src gốc; mọi thí nghiệm trong thư mục collab/v2/, artifact trong outputs_v2/; đánh giá chuẩn py-motmetrics 1.4.0 (MOTA/MOTP/IDF1/IDsw + Precision/Recall/F1 frame-level, GT filter class==1 & conf≠0, IoU=0.5) và TrackEval (HOTA).)
+P| 4B.1. Trả lời trực tiếp câu hỏi nghiên cứu
+P| CÓ — precision 0.887 (trung bình 7 sequence) đã được nâng lên 0.913 (macro-average, tương đương pooled 0.928) mà KHÔNG đánh đổi recall: recall tăng từ 0.421 lên 0.450 (macro; pooled 0.362 → 0.421). Đồng thời F1 +3.9 điểm (0.549 → 0.588), MOTA +3.8 (0.361 → 0.400), IDF1 +6.1 (0.431 → 0.492), ID-switch giảm 18.6 ca (54.9 → 36.3). Câu hỏi của giảng viên đã được đáp ứng chính xác bằng một loạt phiên bản cấu hình được kiểm chứng có hệ thống như dưới đây.
+P| 4B.2. Lộ trình tối ưu qua các phiên bản (mỗi phiên bản một biến số chính)
+P| 4B.3. Kết quả tổng hợp before/after (macro-average 7 sequence)
+P| Pooled (micro — gộp toàn bộ TP/FP/FN, cân theo volume GT; hai phép gộp KHÔNG bằng nhau vì MOT17-04 chiếm 42.3% GT boxes):
+P| Nhận xét: dưới CẢ HAI phép gộp, bản ⭐ đều cao hơn baseline đồng thời ở precision VÀ recall — thuyết phục hơn việc chọn một phép gộp thuận lợi.
+P| 4B.4. Dải điểm vận hành ưu tiên precision (operating points)
+P| Kết luận thực nghiệm quan trọng: ngưỡng conf truyền vào model.track ≥ 0.20 không đổi kết quả (vì tracker tự giữ floor theo track_high_thresh); do đó dải P≥0.90 là post-filter trên kết quả track đã lưu — tái sử dụng 1 lần chạy duy nhất, không mất công lực tính lại. Edge-filter (loại box chạm mép khung trong margin 8px) là chính sách nghiệp vụ hợp lý: chỉ cảnh báo người hiển thị trọn vẹn trong khung; margin 16/32 đổi thêm ít FP nhưng mất nhiều TP — margin 8 tối ưu.
+P| 4B.5. Đánh giá toàn diện bổ sung: HOTA/DetA/AssA (TrackEval)
+P| Ý nghĩa: HOTA +9.2 điểm ở cấu hình full; tại các điểm precision cao, DetPr và AssPr đều CAO hơn baseline — chất lượng precision được kiểm chứng bằng thước đo chi tiết hơn chứ không phải “ăn gian” ngưỡng IoU. (HOTA tính trên đúng bộ GT filter của đồ án để so sánh nội bộ nhất quán.)
+P| 4B.6. Đánh giá Re-ID thật (không còn circular) và hiệu chỉnh ngưỡng association
+P| Thay thế thí nghiệm AUC tự mô phỏng cũ (chỉ 0.60–0.74, bị chỉ trích là circular) bằng phép thử trên cặp crop THẬT của v8s: 418 positive (cùng track, cách nhau ≥ 60 frame) và 1500 negative (khác track cùng camera): AUC 0.8922, AP 0.7806 — OSNet thực sự phân biệt tốt khi crop chất lượng. Ngưỡng Youden tối ưu = 0.7085; tại ngưỡng 0.55 đang cài, precision trên cặp khác người thật chỉ 0.28 ⇒ similarity_threshold 0.55 là quá lỏng, cần 0.70–0.75. Củng chứng: association 0.55 → 320 liên kết (mean sim 0.787, lẫn link rủi ro); association 0.71 → 162 liên kết có mean sim 0.911 — chính sách chặt phù hợp hệ human-in-the-loop (ít merge sai danh tính).
+P| 4B.7. Kiểm định hệ thống bổ sung (ablation — giá trị cả ở kết quả dương lẫn âm)
+P| 4B.8. Các lỗi kỹ thuật đã phát hiện và sửa trong vòng tối ưu
+P| 4B.9. Cấu hình chính thức khuyến nghị + kết luận
+P| Cấu hình được khuyến nghị đưa vào pipeline chính thức: detector YOLOv8s.pt, image_size 1280, confidence_threshold 0.12; tracker BoT-SORT (bộ yaml mặc định, buffer 30); association similarity_threshold 0.71 (theo Youden từ Re-ID thật); điểm vận hành phát cảnh báo: post-filter conf ≥ 0.55 + edge-filter margin 8px (chỉ cảnh báo người hiển thị trọn vẹn).
+P| KẾT LUẬN CHƯƠNG 4B: câu hỏi “88% có thể tối ưu thêm không?” đã được trả lời CÓ một cách có kiểm chứng: Precision 0.913 (macro) / 0.928 (pooled) ở recall cao hơn baseline, cùng bộ chỉ số toàn diện (F1, MOTA, IDF1, IDsw, HOTA/DetA/AssA, Re-ID AUC 0.892) và một bảng ablation cho biết mọi biến số nào có tác dụng, biến số nào không — đáp ứng yêu cầu trình bày nhiều version qua nhiều lần finetune/optimize/config rồi chọn ra version tốt nhất.
+P| Bằng chứng chi tiết: collab/v2/RESULT_BEFORE_AFTER.md; collab/v2/metrics_*.csv (toàn bộ đường cong); collab/v2/hota_results.csv; collab/v2/reid_trackpair_eval.md; collab/v2/margin_study_summary.md; collab/final_answer_advisor.md (Phần G).
+P| 4B.10. V4 — Finetune YOLOv8s theo protocol half-split (không data leakage)
+P| Thiết lập: finetune từ trọng số COCO pretrained trên 2,657 frame ĐẦU mỗi sequence (chiều A) với GT class==1 & conf≠0; YOLOv8s, imgsz 960, batch 4, 25 epochs, AMP, GPU RTX 3050 Ti 4GB; chiều B đối xứng (nửa SAU train — nửa ĐẦU held). Đánh giá như-đối-như trên nửa HELD (không hề xuất hiện trong training) với cùng tracker/protocol; điểm vận hành của mỗi mô hình được chọn ở mức P≥0.91 riêng của nó (conf của mô hình finetuned dịch thấp hơn pretrained nên cut thích hợp là 0.40 thay vì 0.55):
+P| Đọc kết quả: so như-đối-như trên cùng nửa held, finetune tăng P +0.6 điểm (0.9139→0.9196) và recall +13.1 điểm (0.4588→0.5900); mAP50 phát hiện trên nửa held đạt 0.832 (chiều A) / 0.817 (chiều B); mAP50-95 0.501/0.494. So với V1, V4 tăng P +3.3 / R +16.5 / F1 +16.4 điểm. Không có leakage: số liệu V4 đều trên nửa mà mô hình không từng thấy. Bảng này KHÔNG cộng trực tiếp với bảng main (protocol halves khác full 7-sequence).
+P| 4B.11. Đánh giá overfitting (bắt buộc khi finetune trên cùng tập dữ liệu)
+P| Thực hiện 4 phép thử: (1) Protocol halves 2 chiều — mọi số V4 chỉ tính trên frame chưa thấy, loại leakage khỏi số báo cáo; (2) Probe ghi nhớ (memorization): chạy yolo val của best.pt trên CHÍNH TẬP TRAIN — mAP50-95 = 0.742 (dirA) / 0.722 (dirB) so với nửa held 0.501/0.494, tức mô hình “học thuộc” khung hình đã thấy +0.23–0.24 mAP: mức trung bình, được loại khỏi mọi số báo cáo; (3) Trajectory theo epoch: val mAP50-95 đạt đỉnh epoch 15 (0.5011) / 16 (0.4941) rồi giảm nhẹ −1.2…−1.4 điểm ở epoch 25, val box_loss gần phẳng (1.41–1.42) trong khi train loss giảm 1.32→0.67 — dấu eff overfit muộn mức nhẹ; mọi số liệu dùng best.pt (checkpoint đỉnh val, không phải cuối); (4) Đối chiếu như-đối-như pretrained trên cùng nửa held: P và R ĐỀU tăng thật (không phải chỉ nhờ ghi nhớ). Kết luận: overfitting được kiểm soát có kiểm chứng; cải thiện V4 là cải thiện tổng quát hoá thật.
+P| 4B.12. Sweep cảnh báo đa tình huống (Nhóm B — camera quầy vé mô phỏng)
+P| Chạy scoring ở ticket_rate {0.30, 0.60, 0.80} (mỗi mức 3 lần lặp, ngưỡng cảnh báo 0.70/0.50): số cảnh báo HIGH 408 → 229 → 116.7; mean score 0.82 → 0.67 → 0.58. Độ che phủ vé giảm làm gánh nặng cảnh báo tăng ≈3.5×. Ghi chú trung thực: precision/recall trong phép thử này so với GT mô phỏng nên = 1.00 theo cấu trúc — bảng dùng như phân tích WORKLOAD, không phải độ chính xác thực.
+P| 4B.13. Hình minh hoạ + khoảng tin cậy bootstrap
+P| Ba hình 200dpi: outputs_v2/figures/operating_curve.png (đường cong P/R theo cut + mốc baseline), perseq_precision.png (precision từng sequence before/after), hota_components.png (HOTA/DetA/AssA theo 4 config). Khoảng tin cậy 95% cluster bootstrap (resample 7 sequence, 10,000 lần, seed 42, file collab/v2/bootstrap_ci.csv): P Average baseline [0.8653, 0.9070] vs ⭐ [0.8809, 0.9445]; P pooled [0.8667, 0.9161] vs [0.8826, 0.9570]; với n=7 CI rộng, hướng cải thiện vẫn nhất quán ở cả macro và pooled.
+P| Bằng chứng chi tiết vòng 4: outputs_v2/tracks/tracks_v4_dir{A,B}_full.csv; collab/v2/metrics_v4*_halves*.csv; collab/v2/overfit_analysis_v4.py; outputs_v2/logs/train_v4{A,B}.log + results.csv; collab/v2/scenario_sweep.md; outputs_v2/figures/.
+P| CHƯƠNG 5. KẾT LUẬN VÀ HÀM Ý
+P| 5.1. Kết luận chính
+P| Nghiên cứu đã đề xuất và triển khai một pipeline phân tích video end-to-end nhằm hỗ trợ phát hiện các trường hợp nghi ngờ không có bằng chứng vé trong bối cảnh khu du lịch mở. Pipeline kết hợp phát hiện người bằng YOLOv8n, theo vết đa đối tượng bằng ByteTrack, trích xuất tracklet, tái nhận diện người bằng OSNet, liên kết định danh toàn cục bằng cosine similarity và Hungarian matching, sau đó chuyển đổi kết quả thị giác máy tính thành sự kiện ROI, trạng thái hành trình, điểm nghi ngờ và cảnh báo có giải thích.
+P| Thực nghiệm trên 7 sequence MOT17-FRCNN cho thấy hệ thống xử lý thành công 5.293 frame, tạo ra 45.445 dòng detection-track, 704 local tracks, 364 valid tracklets, 364 global IDs, 583 events và 145 cảnh báo cần human review trong kịch bản mô phỏng. Kết quả đánh giá cho thấy detector đạt precision trung bình 0,888 nhưng recall trung bình 0,424, phản ánh hệ thống có xu hướng ít phát hiện nhầm nhưng còn bỏ sót đối tượng trong các cảnh khó. Bước Re-ID và association đạt điểm tương đồng trung bình 0,858 trên các cặp matched, cho thấy embedding có khả năng hỗ trợ liên kết định danh trong điều kiện mô phỏng.
+P| Đóng góp chính của nghiên cứu là xây dựng được một kiến trúc có khả năng kết nối dữ liệu video thô với logic nghiệp vụ có giải thích. Hệ thống không tự động kết luận vi phạm mà tạo cảnh báo nghi ngờ kèm bằng chứng trực quan để nhân viên xác minh. Cách tiếp cận này phù hợp với yêu cầu thực tế tại các khu du lịch mở, nơi cần hỗ trợ giám sát nhưng vẫn phải đảm bảo quyền riêng tư, tính minh bạch và vai trò quyết định cuối cùng của con người.
+P| Tuy nhiên, do MOT17 không chứa nhãn mua vé hoặc camera quầy vé thật, các kết quả về ticket evidence và suspected no-ticket evidence trong nghiên cứu cần được hiểu là kết quả mô phỏng. Vì vậy, nghiên cứu hiện tại chứng minh tính khả thi kỹ thuật của pipeline, đồng thời đặt nền tảng cho các bước đánh giá tiếp theo trên dữ liệu đa camera thực tế.
+P| Đối chiếu với ba câu hỏi nghiên cứu: RQ1 được trả lời ở mức định tính qua feature ablation (mục 4.6.3): kết hợp Re-ID, ràng buộc thời gian và tín hiệu vùng vé làm thay đổi rõ rệt hành vi cảnh báo so với baseline thuần ngưỡng (từ 145 cảnh báo cao xuống 0 khi yêu cầu chuỗi bằng chứng đầy đủ), song mức cải thiện định lượng ở cấp sự kiện chưa đo được do thiếu ground truth nghiệp vụ. RQ2 được trả lời ở mức cơ chế: trạng thái từ chối kết luận đã được hiện thực (mục 3.13.4) và minh họa qua ablation, nhưng tác động định lượng lên tỷ lệ cảnh báo sai chưa đo được vì chưa có nhãn xác minh của con người. RQ3 được đánh giá gián tiếp qua sự đa dạng mật độ và điều kiện quan sát giữa 7 sequence MOT17; việc kiểm chứng trên ngày ghi hình, camera và điều kiện ánh sáng mới thuộc lộ trình validation. Như vậy, cả ba câu hỏi đã được trả lời trong phạm vi mà dữ liệu mô phỏng cho phép; các phần chưa trả lời được chuyển thành kế hoạch kiểm chứng cụ thể ở mục 3.15.4.
+P| 5.2. Hạn chế của thực nghiệm
+P| Mặc dù pipeline đã chạy thành công và tạo ra kết quả đầy đủ, nghiên cứu vẫn có một số hạn chế cần được thừa nhận rõ ràng.
+P| MOT17 không có nhãn mua vé
+P| MOT17 là dataset phục vụ bài toán multi-object tracking, không chứa: thông tin mua vé, camera quầy vé thật, log giao dịch, nhãn người có vé/không có vé, hành vi kiểm soát vé.
+P| Do đó, ticket_evidence trong nghiên cứu là tín hiệu mô phỏng, không phải ground truth nghiệp vụ.
+P| Camera quầy vé là mô phỏng
+P| Pipeline mô phỏng camera quầy vé bằng cách gán khoảng 60% tracklet có ticket evidence và thêm nhiễu vào embedding. Điều này giúp đánh giá khả năng association nhưng chưa thay thế được dữ liệu đa camera thực.
+P| Scoring là rule-based
+P| Suspicion score được tính từ các trọng số và ngưỡng được thiết kế trước. Kết quả có thể giải thích tốt, nhưng chưa phải mô hình học được từ dữ liệu có nhãn. Khi triển khai thực tế, scoring nên được hiệu chỉnh bằng dữ liệu vận hành và phản hồi của nhân viên.
+P| Recall của detection còn hạn chế
+P| Một số sequence có recall thấp, ví dụ MOT17-02 đạt 0,203. Điều này cho thấy detector có thể bỏ sót người, đặc biệt trong các trường hợp nhỏ, xa camera hoặc bị che khuất. Đây là điểm cần cải thiện nếu triển khai thực tế.
+P| Chưa đánh giá trên dữ liệu thực tế tại địa điểm du lịch
+P| MOT17 cung cấp môi trường kiểm thử tốt cho tracking, nhưng chưa phản ánh đầy đủ đặc thù của khu du lịch Hội An như trang phục, góc camera, dòng người, khu vực vé, lối vào mở và điều kiện ánh sáng ban đêm.
+P| Khả năng duy trì định danh (IDF1) còn hạn chế
+P| IDF1 trung bình trên 7 sequence chỉ đạt 0,428, thấp nhất là 0,242 (MOT17-02) và 0,308 (MOT17-13). Vì toàn bộ logic đối soát hành trình dựa trên chuỗi định danh liên tục, việc tracklet bị chia nhỏ do ID switch làm suy giảm đồng thời cả liên kết đa camera lẫn độ tin cậy cảnh báo. Cải thiện IDF1 - bằng tracker mạnh hơn hoặc hợp nhất các tracklet cùng người - cần được ưu tiên song song với recall khi chuyển sang dữ liệu thực.
+P| Các thí nghiệm đối chứng chưa được thực hiện
+P| Các thí nghiệm kiểm chứng có kiểm soát theo mục 3.15.4 - gồm so sánh với baseline ở cấp sự kiện, hiệu chỉnh độ tin cậy (Brier score, ECE, reliability diagram), kiểm tra khả năng tổng quát trên ngày/camera/ánh sáng mới và đo lường vận hành (FPS, độ trễ, khối lượng kiểm tra thủ công) - hiện mới dừng ở mức thiết kế do chưa có dữ liệu pilot có nhãn. Do đó, các kết luận định lượng của nghiên cứu hiện tại chỉ có giá trị trong phạm vi kịch bản mô phỏng trên MOT17.
+P| 5.3. Hướng nghiên cứu trong tương lai
+P| Trong tương lai, hướng phát triển quan trọng nhất là thu thập và xây dựng bộ dữ liệu đa camera thực tế tại bối cảnh khu du lịch mở. Bộ dữ liệu này cần bao gồm camera lối vào, camera quầy vé, camera khu vực kiểm soát, timestamp đồng bộ, annotation hành trình và nhãn xác minh bởi con người. Khi có dữ liệu thực tế, hệ thống có thể được đánh giá trực tiếp theo các chỉ số nghiệp vụ như tỷ lệ cảnh báo đúng, tỷ lệ cảnh báo sai và thời gian xác minh trung bình.
+P| Thứ hai, module phát hiện và theo vết cần được cải thiện để tăng recall. Có thể thay YOLOv8n bằng các detector mạnh hơn, fine-tune trên dữ liệu camera địa phương hoặc kết hợp các tracker như BoT-SORT, OC-SORT để giảm ID switches trong môi trường đông người và che khuất.
+P| Thứ ba, module Re-ID cần được đánh giá và tối ưu trên dữ liệu đa camera thật. Các hướng cải tiến bao gồm fine-tune OSNet, sử dụng mô hình Transformer-based Re-ID, kết hợp ràng buộc không gian-thời gian và bổ sung cơ chế đánh giá độ không chắc chắn của association.
+P| Thứ tư, cơ chế scoring có thể được chuyển từ rule-based sang mô hình hybrid, kết hợp luật nghiệp vụ với học máy dựa trên phản hồi human review. Cách tiếp cận này giúp hệ thống vừa giữ được tính giải thích, vừa có khả năng thích nghi với dữ liệu vận hành thực tế.
+P| Cuối cùng, cần phát triển giao diện human-in-the-loop hoàn chỉnh, cho phép nhân viên xem timeline hành trình, crop bằng chứng, lý do cảnh báo và phản hồi kết quả xác minh. Các phản hồi này có thể được dùng cho active learning nhằm cải thiện hệ thống theo thời gian. Đồng thời, việc triển khai thực tế cần tuân thủ các nguyên tắc về quyền riêng tư, tối thiểu hóa dữ liệu và giới hạn mục đích sử dụng.
+P| TÀI LIỆU THAM KHẢO
+P| Aharon, N., Orfaig, R., & Bobrovsky, B.-Z. (2022). BoT-SORT: Robust associations multi-pedestrian tracking. arXiv preprint arXiv:2206.14651. https://arxiv.org/abs/2206.14651
+P| Bochkovskiy, A., Wang, C.-Y., & Liao, H.-Y. M. (2020). YOLOv4: Optimal speed and accuracy of object detection. arXiv preprint arXiv:2004.10934. https://arxiv.org/abs/2004.10934
+P| Cheng, D. và cộng sự. (2023). ReST: A reconfigurable spatial-temporal graph model for multi-camera multi-object tracking. In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV).
+P| Chính phủ Việt Nam. (2023). Nghị định số 13/2023/NĐ-CP về bảo vệ dữ liệu cá nhân. Ban hành ngày 17 tháng 4 năm 2023.
+P| Dendorfer, P., Rezatofighi, H., Milan, A., Shi, J., Cremers, D., Reid, I., Roth, S., Schindler, K., & Leal-Taixé, L. (2020). MOT20: A benchmark for multi object tracking in crowded scenes. arXiv preprint arXiv:2003.09003. https://arxiv.org/abs/2003.09003
+P| European Parliament and Council of the European Union. (2016). Regulation (EU) 2016/679 of the European Parliament and of the Council of 27 April 2016 on the protection of natural persons with regard to the processing of personal data and on the free movement of such data, and repealing Directive 95/46/EC. Official Journal of the European Union.
+P| Fan, Z. và cộng sự. (2025). All-day multi-camera multi-target tracking. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR).
+P| Han, S., Huang, P., Wang, H., Yu, E., Liu, D., & Pan, X. (2023). MMPTRACK: Large-scale densely annotated multi-camera multiple people tracking benchmark. In Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision.
+P| He, S., Luo, H., Wang, P., Wang, F., Li, H., & Jiang, W. (2021). TransReID: Transformer-based object re-identification. In Proceedings of the IEEE/CVF International Conference on Computer Vision (pp. 14993–15002). https://doi.org/10.1109/ICCV48922.2021.01474
+P| Huang, Y. và cộng sự. (2022). Video-based fare evasion detection at metro gates. Information Sciences.
+P| Kansal, K. và cộng sự. (2024). Privacy-enhancing person re-identification framework: A dual-stage approach. In Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision (WACV).
+P| Karim, N. và cộng sự. (2024). Real-time weakly supervised video anomaly detection. In Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision (WACV).
+P| Li, S., & Gong, S. (2024). Mitigate domain shift by primary-auxiliary objectives association for generalizing person re-identification. In Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision (WACV).
+P| Luiten, J., Osep, A., Dendorfer, P., Torr, P. H. S., Geiger, A., Leal-Taixé, L., & Leibe, B. (2021). HOTA: A higher order metric for evaluating multi-object tracking. International Journal of Computer Vision, 129, 548–578. https://doi.org/10.1007/s11263-020-01375-2
+P| Luo, H., Jiang, W., Fan, X., Zhang, C., & Jiang, W. (2020). FastReID: A PyTorch toolbox for general instance re-identification. arXiv preprint arXiv:2006.02631. https://arxiv.org/abs/2006.02631
+P| Wang, C.-Y., Bochkovskiy, A., & Liao, H.-Y. M. (2023). YOLOv7: Trainable bag-of-freebies sets new state-of-the-art for real-time object detectors. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (pp. 7464–7475). https://doi.org/10.1109/CVPR52729.2023.00721
+P| Wang, C.-Y., Yeh, I.-H., & Liao, H.-Y. M. (2024). YOLOv9: Learning what you want to learn using programmable gradient information. arXiv preprint arXiv:2402.13616. https://arxiv.org/abs/2402.13616
+P| Wei, L., Zhang, S., Gao, W., & Tian, Q. (2018). Person transfer GAN to bridge domain gap for person re-identification. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition Workshops (pp. 79–88). https://doi.org/10.1109/CVPRW.2018.00016
+P| Woo, S. và cộng sự. (2024). MTMMC: A large-scale real-world multi-modal camera tracking benchmark. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR).
+P| Wu, P. và cộng sự. (2024). Open-vocabulary video anomaly detection. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR).
+P| Ye, M., Shen, J., Lin, G., Xiang, T., Shao, L., & Hoi, S. C. H. (2021). Deep learning for person re-identification: A survey and outlook. IEEE Transactions on Pattern Analysis and Machine Intelligence, 44(6), 2872–2893. https://doi.org/10.1109/TPAMI.2021.3054775
+P| Zhang, Y., Sun, P., Jiang, Y., Yu, D., Weng, F., Yuan, Z., Luo, P., Liu, W., & Wang, X. (2022). ByteTrack: Multi-object tracking by associating every detection box. In European Conference on Computer Vision (pp. 1–21). Springer. https://doi.org/10.1007/978-3-031-20047-2_1
+P| Zheng, L., Shen, L., Tian, L., Wang, S., Wang, J., & Tian, Q. (2015). Scalable person re-identification: A benchmark. In Proceedings of the IEEE International Conference on Computer Vision (pp. 1116–1124). https://doi.org/10.1109/ICCV.2015.133
+P| Appendix
+P| Source Code:
+P| Mã nguồn của đề tài được truy cập tại link Github sau:
+P| https://github.com/dungnotnull/workflow-for-ticket-suspicion-multi-camera-video-analytics
+P| Resource Drive:
+P| Tài nguyên của đề tài được truy cập tại link Google Drive sau: 
+P| https://drive.google.com/drive/folders/1oLMTQ-h3mgXWc6k4Ax8vgcKxNtAWamyb?usp=drive_link 
+P| Dataset:
+P| Public dataset được truy cập tại link Kaggle sau:
+P| https://www.kaggle.com/datasets/nhnhunhch/mot17-dataset
+P| Cấu trúc notebook của pipeline
+P| Mã nguồn của đề tài được tổ chức thành 11 notebook, chia thành 6 nhóm như sau:
+TABLE0:
+  | Dataset / Benchmark | Nhiệm vụ chính | Vai trò trong đề tài | Giới hạn
+  | MOT20 | Multi-object tracking | Đánh giá tracking trong cảnh đông người | Không có nhãn nghiệp vụ quầy vé
+  | Market-1501 | Person Re-ID | Đánh giá embedding Re-ID | Dataset cũ, không có chuỗi sự kiện
+  | MSMT17 | Person Re-ID | Đánh giá Re-ID trong bối cảnh đa dạng hơn | Không có nhãn mua vé
+  | MMPTRACK | Multi-camera multi-person tracking | Tham khảo/đánh giá association đa camera | Không mô hình hóa bài toán vé
+  | Kịch bản mô phỏng nghiệp vụ | Event-level pipeline | Đánh giá cảnh báo nghi vấn end-to-end | Cần tự thiết kế ground truth
+TABLE1:
+  | Nhóm nghiên cứu | Mục tiêu chính | Liên quan đến đề tài | Giới hạn so với đề tài
+  | Object detection | Phát hiện người/đối tượng trong ảnh | Cung cấp bounding box đầu vào | Không theo dõi hành trình
+  | Multi-object tracking | Duy trì ID trong một camera | Tạo tracklet nội camera | Không liên kết đầy đủ với nghiệp vụ vé
+  | Person Re-ID | Liên kết cùng người qua camera | Hỗ trợ global temporary ID | Dễ sai nếu thiếu ngữ cảnh
+  | Multi-camera tracking | Theo dõi nhiều người qua nhiều camera | Gần với association đa camera | Không mô hình hóa sự kiện mua vé
+  | Phát hiện trốn vé (fare evasion) | Phát hiện hành vi vượt cổng không thanh toán tại điểm kiểm soát (Huang và cộng sự, 2022) | Cùng bài toán nghiệp vụ vé ở cấp ứng dụng | Giả định có cổng cứng; không liên kết hành trình đa camera
+  | Phát hiện bất thường trong video | Phát hiện bất thường với giám sát yếu và từ vựng mở (Karim và cộng sự, 2024; Wu và cộng sự, 2024) | Góc nhìn bài toán bất thường hành vi | Cấp đoạn video, không theo từng cá nhân, thiếu bằng chứng giải thích
+  | Theo dõi đa camera dựa trên đồ thị | Liên kết đa camera bằng đồ thị không gian-thời gian (Cheng và cộng sự, 2023; Woo và cộng sự, 2024; Fan và cộng sự, 2025) | Nền tảng cho mô hình hợp nhất bằng chứng của đề tài | Chưa có tín hiệu nghiệp vụ vé và trạng thái từ chối kết luận
+  | Video analytics nghiệp vụ | Chuyển video thành sự kiện vận hành | Trọng tâm ứng dụng của đề tài | Cần thiết kế riêng theo bối cảnh
+TABLE2:
+  | Tiêu chí | Ý nghĩa trong đề tài
+  | Gọn nhẹ | Có thể chạy trên Colab/Vast.ai, không cần cụm GPU lớn
+  | Có pre-trained weights | Giảm chi phí huấn luyện, tăng khả năng tái lập
+  | Mã nguồn phổ biến | Dễ tích hợp bằng Python, dễ chia sẻ notebook
+  | Phù hợp video giám sát | Xử lý được người đi bộ, cảnh đông, camera tĩnh
+  | Có thể giải thích | Sinh được bằng chứng cho cảnh báo
+  | Dễ thay thế mô-đun | Cho phép nâng cấp model trong tương lai
+TABLE3:
+  | Nhóm mô hình | Ưu điểm | Hạn chế | Phù hợp với đề tài
+  | Faster R-CNN | Độ chính xác tốt | Suy luận chậm, nặng | Không ưu tiên
+  | SSD | Nhẹ, nhanh | Độ chính xác thường thấp hơn YOLO mới | Có thể tham khảo
+  | EfficientDet | Cân bằng tốt | Triển khai pipeline tracking ít phổ biến hơn YOLO | Không ưu tiên
+  | DETR/Transformer detector | Hiện đại, mạnh | Nặng, cần tài nguyên lớn | Không phù hợp chính
+  | YOLO | Nhanh, nhiều phiên bản nhẹ, dễ tích hợp | Có thể giảm chính xác khi che khuất mạnh | Phù hợp chính
+TABLE4:
+  | Tracker | Ưu điểm | Hạn chế | Nhận xét cho đề tài
+  | SORT | Rất nhẹ, nhanh | Dễ ID switch khi che khuất | Là baseline đơn giản
+  | DeepSORT | Có Re-ID nội camera | Cần feature extractor, có thể chậm hơn | Tốt nhưng cũ hơn
+  | ByteTrack | Nhanh, hiệu quả, tận dụng detection thấp | Có thể ID switch khi che khuất lâu | Phù hợp chính
+  | OC-SORT | Cải thiện motion association | Ít trực quan hơn với pipeline phổ thông | Có thể tham khảo
+  | BoT-SORT | Ổn định hơn nhờ Re-ID và camera motion compensation | Nặng hơn ByteTrack | Phù hợp nếu cần tăng ổn định
+TABLE5:
+  | Nhóm mô hình | Ưu điểm | Hạn chế | Phù hợp đề tài
+  | CNN baseline | Dễ triển khai, nhanh | Có thể kém hơn model lớn | Phù hợp
+  | OSNet | Cân bằng tốt giữa nhẹ và hiệu quả | Công bố trước 2020 | Phù hợp thực tế
+  | FastReID baseline | Framework mạnh, linh hoạt | Cần cấu hình | Phù hợp
+  | TransReID | Biểu diễn mạnh | Nặng hơn, tốn tài nguyên | Tham khảo/không ưu tiên chính
+  | CLIP-based Re-ID | Hiện đại, đặc trưng mạnh | Nặng, triển khai phức tạp hơn | Không ưu tiên giai đoạn đầu
+TABLE6:
+  | Module | Chỉ số sử dụng trong nghiên cứu | Ý nghĩa
+  | Detection | Precision, Recall, F1, confidence distribution | Đánh giá khả năng phát hiện người so với ground truth MOT17 và phân bố độ tin cậy của detector
+  | Tracking | MOTA, ID switches, số local tracks, độ dài track/tracklet | Đánh giá chất lượng duy trì track ID và mức độ ổn định của theo vết đơn camera
+  | Tracklet filtering | Số raw tracks, số valid tracklets, valid ratio, median duration | Đánh giá hiệu quả lọc track ngắn/kém chất lượng trước khi đưa vào Re-ID
+  | Re-ID | Similarity distribution, mean/median similarity, embedding quality qua crop đại diện | Đánh giá mức độ tương đồng của các cặp được liên kết trong kịch bản mô phỏng
+  | Association | Số matched associations, threshold pass rate, unmatched tracklets, association score | Đánh giá kết quả liên kết tracklet dựa trên cosine similarity và Hungarian matching
+TABLE7:
+  | Khía cạnh | Chỉ số sử dụng trong nghiên cứu | Ý nghĩa
+  | Ticket evidence | Số/tỷ lệ Global ID có và không có ticket evidence mô phỏng | Đánh giá phân bố bằng chứng vé trong kịch bản mô phỏng
+  | Journey state | Số/tỷ lệ các trạng thái như ticket_evidence_found, suspected_no_ticket_evidence | Đánh giá kết quả mô hình hóa hành trình theo Global ID
+  | Suspicion scoring | Mean, median, min, max, phân bố suspicion score | Đánh giá khả năng phân tách nhóm theo rule-based scoring
+  | Alert | Số cảnh báo theo mức High/Medium/Low | Đánh giá khối lượng cảnh báo được tạo ra cho từng mức ưu tiên
+  | Human review | Số trường hợp cần người xác minh, trạng thái review ban đầu | Đánh giá khối lượng công việc mà hệ thống chuyển cho nhân viên
+  | Explainability | Số evidence record, crop đại diện, reason của alert | Đánh giá khả năng cung cấp bằng chứng trực quan và lý do cảnh báo
+TABLE8:
+  | Thí nghiệm | Nội dung | Kết quả cần có
+  | Baseline | Giữ pipeline hiện tại gồm detector, tracker, Re-ID, Hungarian matching và scoring theo luật. | Đủ chỉ số detection, tracking, association và sự kiện.
+  | Phương pháp đề xuất | Thay bước liên kết và scoring bằng mô hình hợp nhất bằng chứng; giữ cùng detector và Re-ID để so sánh công bằng. | PR-AUC, precision, recall, F1, cảnh báo sai mỗi giờ và thời gian cảnh báo.
+  | Ablation | Bỏ lần lượt ngoại hình, topology, thời gian di chuyển, vùng vé, giao dịch, quan hệ nhóm và xử lý độ bất định. | Mức thay đổi của từng chỉ số, kèm khoảng tin cậy.
+  | Khả năng tổng quát | Giữ riêng một ngày, camera hoặc điều kiện ánh sáng chưa xuất hiện trong huấn luyện. | Mức suy giảm kết quả và phân tích nguyên nhân.
+  | Độ tin cậy | So sánh điểm chưa hiệu chỉnh với phương pháp calibration và cơ chế từ chối kết luận. | Brier score, ECE, reliability diagram và đường risk-coverage.
+  | Vận hành | Chạy trên thiết bị dự kiến triển khai và đo khối lượng nhân viên phải xem lại. | FPS, độ trễ p50/p95, RAM/VRAM, thời gian xem mỗi cảnh báo và tỷ lệ cảnh báo bị bác bỏ.
+TABLE9:
+  | Giai đoạn | Lựa chọn chính | Lý do chọn | Trade-off / Giới hạn
+  | Detection | YOLOv8n | Nhanh, nhẹ, có pre-trained, dễ chạy trong notebook và phù hợp tài nguyên giới hạn | Có thể bỏ sót người nhỏ, xa camera hoặc bị che khuất mạnh
+  | Tracking | ByteTrack | Gọn, nhanh, dễ tích hợp với đầu ra YOLO; tận dụng cả detection có độ tin cậy thấp | Có thể xảy ra ID switch khi che khuất lâu hoặc mật độ người cao
+  | Tracking thay thế / mở rộng | BoT-SORT | Có thể cải thiện độ ổn định ID trong một số cảnh nhờ kết hợp chuyển động và đặc trưng ngoại hình | Nặng hơn ByteTrack; chưa phải lựa chọn thực nghiệm chính trong nghiên cứu này
+  | Re-ID | OSNet-x1-0 | Có trọng số pre-trained, phù hợp bài toán person Re-ID, chi phí tính toán vừa phải | Có thể kém hơn các mô hình lớn/Transformer trong điều kiện domain gap mạnh
+  | Association | Cosine similarity + Hungarian matching | Dễ triển khai, dễ giải thích, không cần huấn luyện thêm; phù hợp với mô phỏng liên kết đa camera | Phụ thuộc vào ngưỡng similarity; có thể nhầm khi ngoại hình tương tự hoặc crop kém chất lượng
+  | Ràng buộc bổ sung cho association | Time metadata / spatio-temporal constraint | Giúp loại bỏ các cặp liên kết không hợp lý về thời gian hoặc tuyến di chuyển | Trong thực nghiệm MOT17, ràng buộc này chủ yếu ở mức mô phỏng/cấu hình, chưa phản ánh topology camera thật
+  | ROI / event analytics | Line crossing + dwell time + zone event | Đơn giản, dễ giải thích, phù hợp mô hình hóa hành trình và nghiệp vụ quầy vé | Trên MOT17, đây là proxy/mô phỏng sự kiện, không chứng minh giao dịch vé thật
+  | Ticket evidence | Simulated ticket-counter evidence | Cho phép kiểm tra logic nghiệp vụ khi chưa có camera quầy vé và transaction log thật | Không thay thế được dữ liệu giao dịch hoặc xác minh thực tế
+  | Scoring | Rule-based weighted score | Minh bạch, dễ kiểm soát, dễ điều chỉnh theo yêu cầu vận hành | Cần hiệu chỉnh thủ công; chưa học được từ dữ liệu human review thật
+  | Alert | Human-in-the-loop | Giảm rủi ro kết luận sai; đảm bảo cảnh báo được nhân viên xác minh trước khi hành động | Cần nhân viên vận hành; hiệu quả phụ thuộc giao diện và quy trình xác minh
+TABLE10:
+  | Chỉ số | Giá trị
+  | Số sequence | 7
+  | Số frame | 5.293
+  | Detection-track rows | 45.445
+  | Local tracks | 704
+  | Valid tracklets | 364
+  | Global IDs | 364
+  | Events | 583
+  | High alerts/human review | 145
+TABLE11:
+  | Sequence | Số frame | Số GT boxes | Số phát hiện trung bình/frame
+  | MOT17-02-FRCNN | 600 | 18.581 | 7,2
+  | MOT17-04-FRCNN | 1.049 | 47.557 | 17,2
+  | MOT17-05-FRCNN | 836 | 6.917 | 5,5
+  | MOT17-09-FRCNN | 524 | 5.325 | 7,8
+  | MOT17-10-FRCNN | 654 | 12.839 | 8,1
+  | MOT17-11-FRCNN | 900 | 9.436 | 6,9
+  | MOT17-13-FRCNN | 730 | 11.642 | 4,0
+  | Tổng | 5.293 | 111.897 | -
+TABLE12:
+  | Module | Cấu hình chính
+  | Detector | YOLOv8n, confidence ≥ 0,35, IoU ≥ 0,5, image size 960
+  | Tracker | ByteTrack, track_thresh=0.25, match_thresh=0.8, buffer=30
+  | Tracklet Filter | min_frames=10, min_duration=1.0s, min_bbox_height=40px, top-5 crops
+  | Re-ID | OSNet-x1-0, embedding 512 chiều, input 256×128
+  | Association | cosine similarity + Hungarian matching, threshold 0,55
+  | Scoring | alert threshold = 0,70, watch threshold = 0,50, max travel time = 600s
+TABLE13:
+  | Đầu ra | Mô tả
+  | outputs/frames/frame_index.csv | Chứa metadata của từng frame
+  | Camera config | Được đọc và xác thực thành công
+  | Dataset structure | Đúng định dạng MOT17 train sequence
+TABLE14:
+  | Sequence | Detections | Tracks | Confidence trung bình
+  | MOT17-02-FRCNN | 4.338 | 77 | 0,665
+  | MOT17-04-FRCNN | 18.022 | 116 | 0,635
+  | MOT17-05-FRCNN | 4.560 | 151 | 0,779
+  | MOT17-09-FRCNN | 4.112 | 57 | 0,711
+  | MOT17-10-FRCNN | 5.291 | 112 | 0,665
+  | MOT17-11-FRCNN | 6.220 | 92 | 0,795
+  | MOT17-13-FRCNN | 2.902 | 99 | 0,624
+TABLE15:
+  | Sequence | Precision | Recall | F1 | MOTA | ID Switches | IDF1
+  | MOT17-02-FRCNN | 0,869 | 0,203 | 0,329 | 0,170 | 36 | 0,242
+  | MOT17-04-FRCNN | 0,925 | 0,351 | 0,508 | 0,321 | 65 | 0,455
+  | MOT17-05-FRCNN | 0,876 | 0,577 | 0,696 | 0,482 | 95 | 0,594
+  | MOT17-09-FRCNN | 0,836 | 0,645 | 0,728 | 0,504 | 76 | 0,507
+  | MOT17-10-FRCNN | 0,889 | 0,366 | 0,519 | 0,314 | 80 | 0,361
+  | MOT17-11-FRCNN | 0,897 | 0,592 | 0,713 | 0,520 | 35 | 0,528
+  | MOT17-13-FRCNN | 0,924 | 0,231 | 0,369 | 0,206 | 63 | 0,308
+  | Trung bình | 0,888 | 0,424 | 0,552 | 0,360 | - | 0,428
+TABLE16:
+  | Sequence | Total tracklets | Valid | Valid ratio | Median duration | Avg confidence
+  | MOT17-02-FRCNN | 77 | 43 | 55,8% | 1,33s | 0,524
+  | MOT17-04-FRCNN | 116 | 78 | 67,2% | 3,05s | 0,512
+  | MOT17-05-FRCNN | 151 | 74 | 49,0% | 1,07s | 0,679
+  | MOT17-09-FRCNN | 57 | 34 | 59,6% | 1,40s | 0,619
+  | MOT17-10-FRCNN | 112 | 44 | 39,3% | 0,65s | 0,548
+  | MOT17-11-FRCNN | 92 | 48 | 52,2% | 1,08s | 0,640
+  | MOT17-13-FRCNN | 99 | 43 | 43,4% | 0,68s | 0,555
+TABLE17:
+  | Đầu ra | Kích thước / Số bản ghi
+  | crop_embeddings.npy | Embedding cho crop đại diện
+  | tracklet_embeddings.npy | 365 × 512
+  | tracklet_embeddings_meta.csv | 365 metadata records
+TABLE18:
+  | Metric | Giá trị
+  | Total global IDs | 364
+  | IDs with ticket evidence | 219 / 60,2%
+  | IDs without ticket evidence | 145 / 39,8%
+  | Associations matched | 218
+  | Re-ID score trung bình | 0,858
+  | Re-ID score trung vị | 0,909
+  | Re-ID score độ lệch chuẩn | 0,102
+  | Re-ID score nhỏ nhất | 0,616
+  | Re-ID score lớn nhất | 0,927
+TABLE19:
+  | Journey state | Số lượng | Tỷ lệ
+  | ticket_evidence_found | 219 | 60,2%
+  | suspected_no_ticket_evidence | 145 | 39,8%
+TABLE20:
+  | Thống kê | Giá trị
+  | Mean | 0,597
+  | Std | 0,150
+  | Min | 0,432
+  | Median | 0,478
+  | 75th percentile | 0,760
+  | Max | 0,960
+TABLE21:
+  | Chỉ số | Giá trị
+  | Tổng global ID | 364
+  | Số ID có ticket evidence | 219
+  | Số ID nghi ngờ không có ticket evidence | 145
+  | Số human review records | 145
+  | Số evidence index records | 145
+TABLE22:
+  | Alert level | Count | Ratio
+  | High / alert_generated | 145 | 39,8%
+  | Medium / watchlist | 15 | 4,1%
+  | Low / no_alert | 204 | 56,0%
+TABLE23:
+  | Metric | Giá trị
+  | Số sequence xử lý | 7
+  | Số frame xử lý | 5.293
+  | Số dòng tracking | 45.445
+  | Số local tracks | 704
+  | Số valid tracklets | 364
+  | Số global IDs | 364
+  | Số ID có ticket evidence | 219
+  | Số event | 583
+  | Số journey suspected | 145
+  | Số alert/human review | 145
+TABLE24:
+  | Cấu hình | Mô tả | High | Watchlist | No alert | Mean score
+  | full | Đầy đủ Re-ID + thời gian + vùng vé | 0 | 219 | 145 | -
+  | no_reid | Bỏ Re-ID (chỉ dùng thời gian + vùng vé) | 145 | 219 | 0 | 0,64
+  | no_time | Bỏ ràng buộc thời gian | 0 | 0 | 364 | -
+  | no_ticket_zone | Bỏ tín hiệu vùng vé (nhãn ngẫu nhiên 50%) | 43 | 176 | 145 | -
+  | threshold_only | Baseline thuần ngưỡng (không scoring) | 145 | 0 | 219 | 0,665
+TABLE25:
+  | Phiên bản | Detector | Tracker | Ngưỡng vận hành | Thay đổi chính
+  | V1 — baseline luận văn | YOLOv8n @≈640 (NB03) | ByteTrack | conf 0.35 | Pipeline gốc NB10, số liệu gốc
+  | V2 — chuẩn hoá + nâng cấp | YOLOv8s @1280, conf 0.12 | BoT-SORT | post-filter conf ≥ 0.25 | Đánh giá lại bằng py-motmetrics chuẩn; sửa bug imgsz; detector/mô hình lớn hơn
+  | V2.5 — precision-first | YOLOv8s @1280 | BoT-SORT | cut 0.40–0.60 + edge-filter margin 8px | Operating point trên conf output của track; lọc người bị cắt mép khung
+  | V3 — toàn diện | YOLOv8s @1280 (thắng v8m và @1600) | BoT-SORT (buffer 30≡60) | cut 0.55 + edge 8px; association 0.71 | HOTA/DetA/AssA; Re-ID thật; ablation hệ thống; chọn config chính thức
+TABLE26:
+  | Phiên bản / cấu hình | Precision | Recall | F1 | MOTA | IDF1 | IDsw ↓
+  | V1 — baseline (TRƯỚC) | 0.8868 | 0.4208 | 0.5490 | 0.3612 | 0.4309 | 54.9
+  | V2 — v8s@1280 BoT-SORT full | 0.7696 | 0.5818 | 0.6523 | 0.3939 | 0.5264 | 66.0
+  | V2 — cut 0.40 (cân bằng) | 0.8169 | 0.5478 | 0.6423 | 0.4128 | 0.5263 | 58.0
+  | V2 — cut 0.50 + edge | 0.8973 | 0.4693 | 0.6021 | 0.4071 | 0.5014 | 41.6
+  | ⭐ V3 — cut 0.55 + edge 8px | 0.9127 | 0.4500 | 0.5875 | 0.3996 | 0.4921 | 36.3
+  | V3 — P-max cut 0.80 | 0.9609 | 0.2810 | 0.4096 | 0.2679 | 0.3550 | 15.9
+TABLE27:
+  | Cấu hình | Pooled P | Pooled R | Pooled F1 | Pooled MOTA | Pooled IDF1
+  | V1 baseline | 0.8979 | 0.3615 | 0.5156 | 0.3653 | 0.4735
+  | ⭐ cut 0.55 + edge | 0.9283 | 0.4211 | 0.5794 | 0.3877 | 0.4944
+TABLE28:
+  | Precision mục tiêu | Cấu hình | P | R
+  | P ≈ 0.90 | cut 0.50 + edge | 0.8973 (pooled 0.9129) | 0.4693
+  | P ≥ 0.91 ⭐ | cut 0.55 + edge (margin 8) | 0.9127 (pooled 0.9283) | 0.4500
+  | P ≥ 0.93 | cut 0.60 + margin 32 | 0.9331 | 0.4060
+  | P ≥ 0.96 | cut 0.80 | 0.9609 | 0.2810
+TABLE29:
+  | Cấu hình | HOTA | DetA | AssA | DetPr | AssPr
+  | V1 baseline | 0.3625 | 0.2922 | 0.4533 | 0.7610 | 0.8083
+  | V2 v8s full (P≈0.77) | 0.4545 | 0.4267 | 0.4897 | 0.6716 | 0.7996
+  | V2 cut 0.50 + edge | 0.4118 | 0.3608 | 0.4731 | 0.7900 | 0.8462
+  | ⭐ cut 0.55 + edge | 0.4052 | 0.3483 | 0.4741 | 0.8055 | 0.8514
+TABLE30:
+  | Thí nghiệm | Kết quả | Kết luận
+  | YOLOv8m vs v8s @1280 | v8m cut 0.70: P 0.9058/R 0.4110; các điểm edge đều kém v8s | Chọn v8s
+  | imgsz 1600 vs 1280 | 1600 + edge: P 0.8898/R 0.4627 (kém 1280: 0.9127/0.4500) | 1280 = sweet spot
+  | track_buffer 30 vs 60 | F1 0.6524 ≈ 0.6523; IDF1 0.5270 ≈ 0.5264 | Không nhạy buffer — nhạy detector
+  | lowband track_high 0.12 | floor conf 0.25→0.20; R +0.07; IDsw −3.6 | Gain biên, không đáng thêm phức tạp
+  | BoT-SORT vs ByteTrack | F1 +1.5 điểm; IDF1 +3.6; IDsw 66 vs 99 | BoT-SORT thắng cùng detector
+  | edge margin 8 / 16 / 32 | P 0.9127 / 0.9155 / 0.9187; R 0.4500 / 0.4426 / 0.4287 | Margin 8 tối ưu
+TABLE31:
+  | Lỗi | Tác động | Cách sửa
+  | NB03 không truyền imgsz (config ghi 960, thực chạy ≈640) | Detector yếu hơn khai báo | Chạy lại đúng imgsz 1280
+  | Key trùng trong association (track 856/872; 218↔219 nhầm người) | Sai global ID chéo camera | Key duy nhất (sequence, camera, track)
+  | NB11 feature-ablation sinh NaN | Bảng ablation có cột hỏng | Ràng buộc validate khi tổng hợp
+  | MOTP bị hardcode = 0 | Số liệu không đúng | Lấy từ py-motmetrics (IoU-dist)
+  | IDF1/MOTA tự viết không theo chuẩn | Không đối chiếu quốc tế được | py-motmetrics 1.4.0 + TrackEval
+TABLE32:
+  | Mô hình — nửa HELD (protocol halves) | Cut+edge | P | R | F1 | MOTA | IDF1 | IDsw
+  | V1 baseline v8n (2 chiều, trung bình) | native 0.35 | 0.8863 | 0.4248 | 0.5524 | 0.3643 | 0.4622 | 26.1
+  | v8s pretrained (2 chiều, trung bình, cut0.55+edge) | 0.55+8px | 0.9139 | 0.4588 | 0.5950 | 0.4087 | 0.5204 | 16.7
+  | ⭐ V4 finetuned — chiều A→B (held nửa sau) | 0.40+8px | 0.9249 | 0.5814 | 0.7126 | 0.5313 | 0.6094 | 27.6
+  | ⭐ V4 finetuned — chiều B→A (held nửa trước) | 0.40+8px | 0.9142 | 0.5985 | 0.7200 | 0.5373 | 0.6174 | 39.6
+  | ⭐ V4 — trung bình 2 chiều | 0.40+8px | 0.9196 | 0.5900 | 0.7163 | 0.5343 | 0.6134 | 33.6
+TABLE33:
+  | Nhóm notebook | Notebook | Chức năng
+  | Chuẩn bị dữ liệu | 01_setup_dataset, 02_input_video_sync | Thiết lập môi trường, chuẩn hóa dữ liệu, tạo frame_index.csv
+  | Detection–Tracking | 03_detection_tracking | Phát hiện người bằng YOLOv8n và theo vết bằng ByteTrack
+  | Tracklet–ReID | 04_tracklet_crop_extraction, 05_reid_embedding | Tạo tracklet, chọn crop đại diện và trích xuất embedding OSNet
+  | Association | 06_multicamera_association | Mô phỏng camera vé, tính similarity, Hungarian matching và gán Global ID
+  | Nghiệp vụ mô phỏng | 07_roi_event_journey_scoring, 08_alert_evidence_human_review | Sinh event, journey state, suspicion score, alert, evidence và human review
+  | Đánh giá | 09_evaluation_visualization, 10_evaluation_metrics, 11_ablation_study | Trực quan hóa, tính metric và phân tích ablation
